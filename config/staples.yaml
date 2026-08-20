@@ -1,0 +1,93 @@
+# Always-available ovo-lacto vegetarian proteins at ISR.
+# Macros are typical dining-hall serving sizes; used when the rotating menu is weak.
+items:
+  - id: staple:eggs
+    name: Scrambled eggs (omelet/egg bar)
+    station: Rise & Dine / Grillworks
+    meals: [breakfast]
+    serving_size: 2 large eggs
+    calories: 180
+    protein_g: 12
+    carbs_g: 2
+    fat_g: 12
+  - id: staple:egg-whites
+    name: Egg whites
+    station: Rise & Dine / Grillworks
+    meals: [breakfast]
+    serving_size: 1 cup
+    calories: 125
+    protein_g: 26
+    carbs_g: 2
+    fat_g: 0
+  - id: staple:greek-yogurt
+    name: Greek yogurt
+    station: Build Your Own / Rise & Dine
+    meals: [breakfast, lunch, dinner]
+    serving_size: 1 cup
+    calories: 130
+    protein_g: 17
+    carbs_g: 9
+    fat_g: 0
+  - id: staple:cottage-cheese
+    name: Cottage cheese
+    station: Build Your Own / Grains & Greens
+    meals: [breakfast, lunch, dinner]
+    serving_size: 1 cup
+    calories: 180
+    protein_g: 24
+    carbs_g: 8
+    fat_g: 5
+  - id: staple:milk
+    name: 1% milk
+    station: Beverage
+    meals: [breakfast, lunch, dinner]
+    serving_size: 8 fl oz
+    calories: 110
+    protein_g: 8
+    carbs_g: 12
+    fat_g: 2.5
+  - id: staple:cheddar
+    name: Shredded cheddar
+    station: Build Your Own
+    meals: [breakfast, lunch, dinner]
+    serving_size: 1 oz
+    calories: 110
+    protein_g: 7
+    carbs_g: 1
+    fat_g: 9
+  - id: staple:black-beans
+    name: Black beans
+    station: Build Your Own / Latitude
+    meals: [lunch, dinner]
+    serving_size: 1/2 cup
+    calories: 110
+    protein_g: 7
+    carbs_g: 20
+    fat_g: 0.5
+  - id: staple:tofu
+    name: Tofu
+    station: Inclusive Solutions / Fusion 48
+    meals: [lunch, dinner]
+    serving_size: 4 oz
+    calories: 120
+    protein_g: 14
+    carbs_g: 3
+    fat_g: 7
+  - id: staple:peanut-butter
+    name: Peanut butter
+    station: Rise & Dine / Cafe a la Crumb
+    meals: [breakfast, lunch]
+    serving_size: 2 tbsp
+    calories: 190
+    protein_g: 8
+    carbs_g: 7
+    fat_g: 16
+  - id: staple:string-cheese
+    name: String cheese / mozzarella stick
+    station: Build Your Own
+    meals: [lunch, dinner]
+    serving_size: 1 stick
+    calories: 80
+    protein_g: 7
+    carbs_g: 1
+    fat_g: 6

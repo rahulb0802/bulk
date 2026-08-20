@@ -1,0 +1,22 @@
+name: Daily ISR plan
+
+on:
+  schedule:
+    # 01:00 UTC = 8:00pm CDT (typical school-year timezone)
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    env:
+      TZ: America/Chicago
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install and plan tomorrow
+        run: |
+          uv sync
+          uv run macro plan --date tomorrow

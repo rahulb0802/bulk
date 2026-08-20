@@ -1,0 +1,34 @@
+# ISR Daily Macro Planner
+
+Personal tool that scrapes tomorrow's [ISR EatSmart](https://eatsmart.housing.illinois.edu/) menu, builds an ovo-lacto vegetarian breakfast/lunch/dinner plan targeting **≥110g protein** and **2200–2400 kcal**, then sends the plate to your phone via [ntfy.sh](https://ntfy.sh).
+
+Protein from your shake (50g) is excluded. Macros are recomputed in Python from official nutrition labels so the model cannot invent numbers.
+
+## Setup
+
+```bash
+cp .env.example .env
+# put your Groq key and a secret ntfy topic in .env
+uv sync
+```
+
+1. Get a Groq key at [console.groq.com](https://console.groq.com).
+2. Install the [ntfy app](https://ntfy.sh/), subscribe to the same topic you put in `.env` (`NTFY_TOPIC` should be long and unguessable).
+3. Edit `config/profile.yaml` and `config/staples.yaml` if needed.
+
+## Usage
+
+```bash
+# scrape + plan + ntfy for tomorrow (America/Chicago)
+uv run macro plan
+
+uv run macro scrape --date today
+uv run macro plan --date 2026-08-20 --no-notify
+uv run macro notify --date 2026-08-20
+```
+
+Plans are written to `data/plans/YYYY-MM-DD.md`.
+
+Nightly GitHub Action (8:00pm CDT): add repository secrets `GROQ_API_KEY` and `NTFY_TOPIC`, then enable Actions.
+
+This is for personal meal planning only. Be polite to EatSmart (the scraper already rate-limits and caches labels).

@@ -1,0 +1,26 @@
+[project]
+name = "macro"
+version = "0.1.0"
+description = "Personal ISR dining-hall macro planner with EatSmart scrape + Groq + ntfy"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "groq>=0.27",
+    "httpx>=0.27",
+    "lxml>=5.3",
+    "pydantic>=2.9",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+    "tzdata>=2024.1",
+]
+
+[project.scripts]
+macro = "macro.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/macro"]

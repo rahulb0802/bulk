@@ -1,0 +1,12 @@
+.cursor/
+.env
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+data/cache/
+data/plans/
+data/menus/
+.python-version

@@ -346,15 +346,31 @@ Cover all 3 meals. Prefer high protein per calorie. Prefer items from fewer stat
     return system, user
 
 
-def _model_unavailable(exc: BaseException) -> bool:
+def _should_fallback(exc: BaseException) -> bool:
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if status in {404, 429, 500, 503}:
+        return True
     text = str(exc).lower()
     markers = (
         "404",
+        "429",
+        "503",
         "not found",
         "not_found",
         "not supported",
         "unknown model",
         "invalid model",
+        "high demand",
+        "overloaded",
+        "unavailable",
+        "resource exhausted",
+        "resource_exhausted",
+        "capacity",
+        "rate limit",
+        "rate_limit",
+        "quota",
+        "try again",
+        "temporarily",
     )
     return any(marker in text for marker in markers)
 
@@ -378,7 +394,7 @@ def ask_llm(system: str, user: str) -> dict[str, object]:
             return _extract_json(response.text or "{}")
         except Exception as exc:
             last_error = exc
-            if _model_unavailable(exc):
+            if _should_fallback(exc):
                 print(f"{model} unavailable ({exc}); trying fallback")
                 continue
             raise

@@ -2,7 +2,7 @@
 
 Personal tool that scrapes tomorrow's [ISR EatSmart](https://eatsmart.housing.illinois.edu/) menu, builds an ovo-lacto vegetarian breakfast/lunch/dinner plan targeting **≥110g protein** and **2200–2400 kcal**, then sends the plate to your phone via [ntfy.sh](https://ntfy.sh).
 
-Protein from your shake (50g) is excluded. Macros are recomputed in Python from official nutrition labels so the model cannot invent numbers.
+Protein from shakes is excluded. Macros are recomputed in Python from official nutrition labels.
 
 ## Setup
 

@@ -65,15 +65,29 @@ def meal_notify_at(plan_date: date, meal_name: str, profile: Profile) -> datetim
     return when - timedelta(minutes=profile.notify_lead_minutes)
 
 
+def _ascii_header(value: str) -> str:
+    replacements = {
+        "·": "-",
+        "—": "-",
+        "–": "-",
+        "×": "x",
+        "→": "->",
+    }
+    for src, dst in replacements.items():
+        value = value.replace(src, dst)
+    return value.encode("ascii", "replace").decode("ascii")
+
+
 def _publish(topic: str, title: str, message: str, at: datetime | None = None) -> None:
     headers = {
-        "Title": title,
+        "Title": _ascii_header(title),
         "Markdown": "yes",
         "Tags": "plate,tomato",
     }
-    now = datetime.now(tz=at.tzinfo) if at else None
-    if at is not None and now is not None and at > now + timedelta(minutes=2):
-        headers["At"] = str(int(at.timestamp()))
+    if at is not None:
+        now = datetime.now(tz=at.tzinfo)
+        if at > now + timedelta(minutes=2):
+            headers["At"] = str(int(at.timestamp()))
     url = f"{ntfy_base_url()}/{topic}"
     with httpx.Client(timeout=20.0) as client:
         response = client.post(url, content=message.encode("utf-8"), headers=headers)
@@ -87,7 +101,7 @@ def notify_plan(plan: DayPlan, profile: Profile) -> None:
         return
     _publish(
         topic,
-        title=f"ISR {plan.date} · {plan.protein_g:g}g P · {plan.calories:g} kcal",
+        title=f"ISR {plan.date} - {plan.protein_g:g}g P - {plan.calories:g} kcal",
         message=overview_markdown(plan),
     )
     target = date.fromisoformat(plan.date)
@@ -95,7 +109,7 @@ def notify_plan(plan: DayPlan, profile: Profile) -> None:
         when = meal_notify_at(target, meal.name, profile)
         _publish(
             topic,
-            title=f"ISR {meal.name} · {meal.protein_g:g}g P · {meal.calories:g} kcal",
+            title=f"ISR {meal.name} - {meal.protein_g:g}g P - {meal.calories:g} kcal",
             message=meal_markdown(meal),
             at=when,
         )

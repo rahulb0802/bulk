@@ -4,7 +4,8 @@ import json
 import re
 from datetime import date
 
-from groq import Groq
+from google import genai
+from google.genai import types
 
 from macro.models import (
     DayMenu,
@@ -14,7 +15,7 @@ from macro.models import (
     PlannedItem,
     Profile,
 )
-from macro.settings import groq_api_key, groq_model, load_staples
+from macro.settings import gemini_api_key, gemini_models, load_staples
 
 MEALS = ("breakfast", "lunch", "dinner")
 
@@ -40,46 +41,27 @@ def catalog_for_day(menu: DayMenu, profile: Profile) -> list[MenuItem]:
     return filtered
 
 
-LLM_ITEMS_PER_MEAL = 16
-
-
-def _row(item: MenuItem) -> dict[str, object]:
-    nutrition = item.nutrition
-    assert nutrition is not None
-    serving = item.serving_size or nutrition.serving_size
-    return {
-        "id": item.id,
-        "n": item.name,
-        "s": item.station,
-        "m": item.meal,
-        "sz": serving[:40],
-        "kcal": round(nutrition.calories),
-        "p": round(nutrition.protein_g, 1),
-    }
-
-
-def compact_catalog(items: list[MenuItem], per_meal: int = LLM_ITEMS_PER_MEAL) -> list[dict[str, object]]:
-    """Keep a small high-protein + calorie mix so Groq free-tier TPM is not blown."""
-    selected: list[MenuItem] = []
-    for meal in MEALS:
-        group = [item for item in items if item.meal == meal]
-        by_protein = sorted(group, key=lambda i: i.protein_g(), reverse=True)
-        by_calories = sorted(group, key=lambda i: i.calories(), reverse=True)
-        picked: list[MenuItem] = []
-        seen: set[str] = set()
-        protein_slots = max(per_meal * 2 // 3, 8)
-        for item in by_protein[:protein_slots]:
-            if item.id not in seen:
-                seen.add(item.id)
-                picked.append(item)
-        for item in by_calories:
-            if len(picked) >= per_meal:
-                break
-            if item.id not in seen:
-                seen.add(item.id)
-                picked.append(item)
-        selected.extend(picked)
-    return [_row(item) for item in selected]
+def catalog_rows(items: list[MenuItem]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    ordered = sorted(
+        items,
+        key=lambda i: (MEALS.index(i.meal) if i.meal in MEALS else 99, -i.protein_g()),
+    )
+    for item in ordered:
+        nutrition = item.nutrition
+        assert nutrition is not None
+        rows.append(
+            {
+                "id": item.id,
+                "name": item.name,
+                "station": item.station,
+                "meal": item.meal,
+                "serving": item.serving_size or nutrition.serving_size,
+                "kcal": round(nutrition.calories),
+                "p": round(nutrition.protein_g, 1),
+            }
+        )
+    return rows
 
 
 def lookup_item(catalog: list[MenuItem], item_id: str, meal: str) -> MenuItem | None:
@@ -326,44 +308,89 @@ def build_prompt(
         "Return a single JSON object."
     )
     retry = f"\nRetry: {retry_hint}\n" if retry_hint else ""
-    catalog_json = json.dumps(catalog, separators=(",", ":"))
-    user = f"""ISR {target.isoformat()}. Ovo-lacto vegetarian.
-Protein floor {profile.protein_g}g (no shakes). Calories {profile.calories_min}-{profile.calories_max}.
-Max {profile.max_items_per_meal} items/meal.
+    user = f"""ISR dining hall plan for {target.isoformat()}. Ovo-lacto vegetarian.
+
+Protein floor (dining only; shakes already cover 50g): {profile.protein_g} g
+Calorie band: {profile.calories_min}-{profile.calories_max} kcal
+Max items per meal: {profile.max_items_per_meal}
 {profile.notes.strip()}
 {retry}
-Catalog keys: id,n=name,s=station,m=meal,sz=serving,kcal,p=protein_g
-{catalog_json}
+Catalog (use these ids only):
+{json.dumps(catalog, indent=2)}
 
-Return JSON: {{"meals":[{{"name":"breakfast|lunch|dinner","station_order":["..."],"plate_tips":"...","items":[{{"id":"...","name":"...","station":"...","servings":1,"serving_size":"...","notes":"..."}}]}}],"warnings":[],"protein_gap_plan":null}}
-Use catalog ids only. Cover all 3 meals. Prefer high protein/kcal. Do not invent foods.
+Return JSON:
+{{
+  "meals": [
+    {{
+      "name": "breakfast" | "lunch" | "dinner",
+      "station_order": ["walking order"],
+      "plate_tips": "how to fit this on one plate, what to skip, what to double if still hungry",
+      "items": [
+        {{
+          "id": "catalog id",
+          "name": "exact catalog name",
+          "station": "station",
+          "servings": 1.0,
+          "serving_size": "from catalog",
+          "notes": "short plating note"
+        }}
+      ]
+    }}
+  ],
+  "warnings": [],
+  "protein_gap_plan": null
+}}
+
+Cover all 3 meals. Prefer high protein per calorie. Prefer items from fewer stations when possible. Do not invent foods.
 """.strip()
     return system, user
 
 
-def ask_llm(system: str, user: str) -> dict[str, object]:
-    client = Groq(api_key=groq_api_key())
-    completion = client.chat.completions.create(
-        model=groq_model(),
-        temperature=0.2,
-        reasoning_effort="medium",
-        max_tokens=2500,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
+def _model_unavailable(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    markers = (
+        "404",
+        "not found",
+        "not_found",
+        "not supported",
+        "unknown model",
+        "invalid model",
     )
-    content = completion.choices[0].message.content or "{}"
-    return _extract_json(content)
+    return any(marker in text for marker in markers)
+
+
+def ask_llm(system: str, user: str) -> dict[str, object]:
+    client = genai.Client(api_key=gemini_api_key())
+    config = types.GenerateContentConfig(
+        system_instruction=system,
+        response_mime_type="application/json",
+        thinking_config=types.ThinkingConfig(thinking_level="high"),
+    )
+    last_error: BaseException | None = None
+    for model in gemini_models():
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=user,
+                config=config,
+            )
+            print(f"Planned with {model}")
+            return _extract_json(response.text or "{}")
+        except Exception as exc:
+            last_error = exc
+            if _model_unavailable(exc):
+                print(f"{model} unavailable ({exc}); trying fallback")
+                continue
+            raise
+    raise SystemExit(f"Gemini request failed: {last_error}")
 
 
 def generate_plan(menu: DayMenu, profile: Profile, target: date) -> DayPlan:
     items = catalog_for_day(menu, profile)
     if not items:
         raise SystemExit(f"No vegetarian items with nutrition for {target.isoformat()}")
-    compact = compact_catalog(items)
-    system, user = build_prompt(target, profile, compact)
+    rows = catalog_rows(items)
+    system, user = build_prompt(target, profile, rows)
     raw = ask_llm(system, user)
     plan = recompute(dayplan_from_llm(raw, target), items, profile)
     if not plan_ok(plan, profile):

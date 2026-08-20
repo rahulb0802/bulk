@@ -1,12 +1,12 @@
 [project]
 name = "macro"
 version = "0.1.0"
-description = "Personal ISR dining-hall macro planner with EatSmart scrape + Groq + ntfy"
+description = "Personal ISR dining-hall macro planner with EatSmart scrape + Gemini + ntfy"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.12",
-    "groq>=0.27",
+    "google-genai>=1.0",
     "httpx>=0.27",
     "lxml>=5.3",
     "pydantic>=2.9",

@@ -49,15 +49,20 @@ def load_staples() -> list[MenuItem]:
     return items
 
 
-def groq_api_key() -> str:
-    key = os.environ.get("GROQ_API_KEY", "").strip()
+def gemini_api_key() -> str:
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not key:
-        raise SystemExit("GROQ_API_KEY is missing. Copy .env.example to .env.")
+        raise SystemExit("GEMINI_API_KEY is missing. Copy .env.example to .env.")
     return key
 
 
-def groq_model() -> str:
-    return os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b").strip()
+def gemini_models() -> list[str]:
+    primary = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash").strip()
+    fallback = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash").strip()
+    models = [primary]
+    if fallback and fallback != primary:
+        models.append(fallback)
+    return models
 
 
 def ntfy_topic() -> str | None:

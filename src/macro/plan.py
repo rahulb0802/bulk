@@ -40,25 +40,46 @@ def catalog_for_day(menu: DayMenu, profile: Profile) -> list[MenuItem]:
     return filtered
 
 
-def compact_catalog(items: list[MenuItem]) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for item in items:
-        nutrition = item.nutrition
-        assert nutrition is not None
-        rows.append(
-            {
-                "id": item.id,
-                "name": item.name,
-                "station": item.station,
-                "meal": item.meal,
-                "serving": item.serving_size or nutrition.serving_size,
-                "kcal": round(nutrition.calories),
-                "p": round(nutrition.protein_g, 1),
-                "staple": item.staple,
-            }
-        )
-    rows.sort(key=lambda row: (-float(row["p"]), float(row["kcal"])))
-    return rows
+LLM_ITEMS_PER_MEAL = 16
+
+
+def _row(item: MenuItem) -> dict[str, object]:
+    nutrition = item.nutrition
+    assert nutrition is not None
+    serving = item.serving_size or nutrition.serving_size
+    return {
+        "id": item.id,
+        "n": item.name,
+        "s": item.station,
+        "m": item.meal,
+        "sz": serving[:40],
+        "kcal": round(nutrition.calories),
+        "p": round(nutrition.protein_g, 1),
+    }
+
+
+def compact_catalog(items: list[MenuItem], per_meal: int = LLM_ITEMS_PER_MEAL) -> list[dict[str, object]]:
+    """Keep a small high-protein + calorie mix so Groq free-tier TPM is not blown."""
+    selected: list[MenuItem] = []
+    for meal in MEALS:
+        group = [item for item in items if item.meal == meal]
+        by_protein = sorted(group, key=lambda i: i.protein_g(), reverse=True)
+        by_calories = sorted(group, key=lambda i: i.calories(), reverse=True)
+        picked: list[MenuItem] = []
+        seen: set[str] = set()
+        protein_slots = max(per_meal * 2 // 3, 8)
+        for item in by_protein[:protein_slots]:
+            if item.id not in seen:
+                seen.add(item.id)
+                picked.append(item)
+        for item in by_calories:
+            if len(picked) >= per_meal:
+                break
+            if item.id not in seen:
+                seen.add(item.id)
+                picked.append(item)
+        selected.extend(picked)
+    return [_row(item) for item in selected]
 
 
 def lookup_item(catalog: list[MenuItem], item_id: str, meal: str) -> MenuItem | None:
@@ -304,49 +325,18 @@ def build_prompt(
         "Choose only items from the provided catalog. Do not invent foods or macros. "
         "Return a single JSON object."
     )
-    retry = f"\nRETRY CONSTRAINTS:\n{retry_hint}\n" if retry_hint else ""
-    user = f"""
-Date: {target.isoformat()}
-Hall: ISR (Illinois Street Dining Center)
-Diet: {profile.diet}
-Hard protein floor (dining only; shakes already cover 50g): {profile.protein_g} g
-Calorie band: {profile.calories_min}-{profile.calories_max} kcal
-Max items per meal: {profile.max_items_per_meal}
-User notes: {profile.notes.strip()}
+    retry = f"\nRetry: {retry_hint}\n" if retry_hint else ""
+    catalog_json = json.dumps(catalog, separators=(",", ":"))
+    user = f"""ISR {target.isoformat()}. Ovo-lacto vegetarian.
+Protein floor {profile.protein_g}g (no shakes). Calories {profile.calories_min}-{profile.calories_max}.
+Max {profile.max_items_per_meal} items/meal.
+{profile.notes.strip()}
 {retry}
-Catalog (use these ids only):
-{json.dumps(catalog, indent=2)}
+Catalog keys: id,n=name,s=station,m=meal,sz=serving,kcal,p=protein_g
+{catalog_json}
 
-Return JSON with this shape:
-{{
-  "meals": [
-    {{
-      "name": "breakfast" | "lunch" | "dinner",
-      "station_order": ["station names in walking order"],
-      "plate_tips": "how to fit this on one plate, what to skip, what to double if still hungry",
-      "items": [
-        {{
-          "id": "catalog id",
-          "name": "exact catalog name",
-          "station": "station",
-          "servings": 1.0,
-          "serving_size": "from catalog",
-          "notes": "short plating note"
-        }}
-      ]
-    }}
-  ],
-  "warnings": [],
-  "protein_gap_plan": null
-}}
-
-Rules:
-- Cover breakfast, lunch, and dinner.
-- Use only catalog items (posted EatSmart menu). Do not invent foods, stations, or staples.
-- Prefer high protein per calorie among listed items.
-- Servings may be 0.5 increments (1, 1.5, 2, ...).
-- Do not exceed {profile.max_items_per_meal} items per meal.
-- Include realistic dining-hall tips (one plate, station order, what to skip).
+Return JSON: {{"meals":[{{"name":"breakfast|lunch|dinner","station_order":["..."],"plate_tips":"...","items":[{{"id":"...","name":"...","station":"...","servings":1,"serving_size":"...","notes":"..."}}]}}],"warnings":[],"protein_gap_plan":null}}
+Use catalog ids only. Cover all 3 meals. Prefer high protein/kcal. Do not invent foods.
 """.strip()
     return system, user
 
@@ -356,7 +346,8 @@ def ask_llm(system: str, user: str) -> dict[str, object]:
     completion = client.chat.completions.create(
         model=groq_model(),
         temperature=0.2,
-        reasoning_effort="high",
+        reasoning_effort="medium",
+        max_tokens=2500,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": system},
@@ -374,18 +365,7 @@ def generate_plan(menu: DayMenu, profile: Profile, target: date) -> DayPlan:
     compact = compact_catalog(items)
     system, user = build_prompt(target, profile, compact)
     raw = ask_llm(system, user)
-    plan = dayplan_from_llm(raw, target)
-    plan = recompute(plan, items, profile)
-    if not plan_ok(plan, profile):
-        hint = (
-            f"Previous plan had {plan.protein_g}g protein and {plan.calories} kcal. "
-            f"You MUST reach at least {profile.protein_g}g protein and stay near "
-            f"{profile.calories_min}-{profile.calories_max} kcal. "
-            "Add extra servings of the highest-protein catalog items."
-        )
-        system, user = build_prompt(target, profile, compact, retry_hint=hint)
-        raw = ask_llm(system, user)
-        plan = recompute(dayplan_from_llm(raw, target), items, profile)
+    plan = recompute(dayplan_from_llm(raw, target), items, profile)
     if not plan_ok(plan, profile):
         plan = fill_gaps(plan, items, profile)
     return plan

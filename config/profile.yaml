@@ -7,15 +7,14 @@ timezone: America/Chicago
 # ntfy pings this many minutes before each meal
 notify_lead_minutes: 45
 meals:
-  breakfast: "07:00"
-  lunch: "11:15"
-  dinner: "17:15"
+  breakfast: "09:00"
+  lunch: "13:00"
+  dinner: "19:00"
 # Case-insensitive substrings to skip even if vegetarian
 dislikes: []
 # Extra notes injected into the LLM prompt
 notes: >
   Lean bulk, slight surplus. Protein is a hard floor; calories are a band.
-  Prefer high-protein density (eggs, yogurt, cottage cheese, tofu, beans, cheese)
-  over dessert and fried sides. Fit each meal on one plate when possible.
-  Skip juice; drink milk if calories allow. 50g protein shake is already handled
-  outside this plan — do not include shakes.
+  Prefer high-protein density from today's posted menu over dessert and fried
+  sides. Fit each meal on one plate when possible. 50g protein shake is already
+  handled outside this plan — do not include shakes.

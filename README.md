@@ -14,7 +14,8 @@ uv sync
 
 1. Get a Groq key at [console.groq.com](https://console.groq.com).
 2. Install the [ntfy app](https://ntfy.sh/), subscribe to the same topic you put in `.env` (`NTFY_TOPIC` should be long and unguessable).
-3. Edit `config/profile.yaml` and `config/staples.yaml` if needed.
+3. Edit `config/profile.yaml`. Only add `config/staples.yaml` items after you
+   have seen them at ISR.
 
 ## Usage
 

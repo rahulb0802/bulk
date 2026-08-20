@@ -147,7 +147,7 @@ def plan_ok(plan: DayPlan, profile: Profile) -> bool:
 
 
 def fill_gaps(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPlan:
-    """Greedy staple/high-protein fill if the LLM undershoots protein."""
+    """Greedy fill from the posted catalog if the LLM undershoots targets."""
     by_meal: dict[str, list[MenuItem]] = {meal: [] for meal in MEALS}
     for item in catalog:
         if item.meal in by_meal:
@@ -226,13 +226,14 @@ def fill_gaps(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPl
     if plan.protein_g < profile.protein_g:
         gap = round(profile.protein_g - plan.protein_g, 1)
         plan.protein_gap_plan = (
-            f"Still {gap}g protein short. Double Greek yogurt or cottage cheese, "
-            "or add egg whites at breakfast."
+            f"Still {gap}g protein short of {profile.protein_g}g from the posted menu. "
+            "Take extra servings of the highest-protein listed items."
         )
         plan.warnings.append(plan.protein_gap_plan)
     if plan.calories < profile.calories_min:
         plan.warnings.append(
-            f"Calories {plan.calories} below {profile.calories_min}; add rice, fruit, or extra milk."
+            f"Calories {plan.calories} below {profile.calories_min}; "
+            "take extra servings of listed items if you need more."
         )
     if plan.calories > profile.calories_max + 150:
         plan.warnings.append(
@@ -341,11 +342,11 @@ Return JSON with this shape:
 
 Rules:
 - Cover breakfast, lunch, and dinner.
-- Prefer high protein per calorie. Eggs, yogurt, cottage cheese, tofu, beans, cheese first.
+- Use only catalog items (posted EatSmart menu). Do not invent foods, stations, or staples.
+- Prefer high protein per calorie among listed items.
 - Servings may be 0.5 increments (1, 1.5, 2, ...).
 - Do not exceed {profile.max_items_per_meal} items per meal.
-- Include realistic dining-hall tips (one plate, grab milk last, skip dessert unless protein is done).
-- If the rotating menu is weak, use staple items.
+- Include realistic dining-hall tips (one plate, station order, what to skip).
 """.strip()
     return system, user
 
@@ -379,7 +380,8 @@ def generate_plan(menu: DayMenu, profile: Profile, target: date) -> DayPlan:
         hint = (
             f"Previous plan had {plan.protein_g}g protein and {plan.calories} kcal. "
             f"You MUST reach at least {profile.protein_g}g protein and stay near "
-            f"{profile.calories_min}-{profile.calories_max} kcal. Add high-protein staples."
+            f"{profile.calories_min}-{profile.calories_max} kcal. "
+            "Add extra servings of the highest-protein catalog items."
         )
         system, user = build_prompt(target, profile, compact, retry_hint=hint)
         raw = ask_llm(system, user)

@@ -32,6 +32,6 @@ Plans are written to `data/plans/YYYY-MM-DD.md`.
 
 Nightly GitHub Action (8:00pm CDT): add repository secrets `GEMINI_API_KEY` and `NTFY_TOPIC`, then enable Actions.
 
-The planner uses Gemini 3.6 Flash.
+The planner uses Gemini 3.6 Flash, and falls back to 3.5 Flash if 3.6 is unavailable.
 
 This is for personal meal planning only. Be polite to EatSmart (the scraper already rate-limits and caches labels).

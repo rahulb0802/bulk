@@ -57,8 +57,8 @@ def gemini_api_key() -> str:
 
 
 def gemini_models() -> list[str]:
-    primary = (os.environ.get("GEMINI_MODEL") or "gemini-3.7-flash").strip()
-    fallback = (os.environ.get("GEMINI_FALLBACK_MODEL") or "gemini-3.6-flash").strip()
+    primary = (os.environ.get("GEMINI_MODEL") or "gemini-3.6-flash").strip()
+    fallback = (os.environ.get("GEMINI_FALLBACK_MODEL") or "gemini-3.5-flash").strip()
     models = [primary]
     if fallback and fallback != primary:
         models.append(fallback)

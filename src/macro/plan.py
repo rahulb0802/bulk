@@ -393,6 +393,7 @@ Reason about each plate before you pick items:
 - Taste and pairing: sauces and toppings only go with foods they belong on. Marinara belongs on pasta, not edamame and broccoli. Oatmeal should include a topping from the catalog (brown sugar, fruit, honey, nuts, yogurt) if one exists; if none exists, pick a different breakfast rather than serving it plain.
 - Health: prefer whole, training-friendly foods (eggs, yogurt, tofu, beans, grains, fruit, vegetables, simple cooked entrees). Skip pizza, fries, dessert, and similar junk even if the calories look convenient. Pasta is a fine carb; pizza is not.
 - Vegetables are a side, not the meal. Prefer fewer stations when it does not wreck the plate.
+- Servings: never use fractions for whole/discrete food items. Eggs, muffins, bagels, bananas, apples, cookies, patties, pieces of fruit, and similar countables must be whole numbers (1, 2, 3…). Do not prescribe half an egg or 1.5 muffins. Fractional servings are only allowed for scoopable or pourable foods (oatmeal, rice, yogurt, sauce, beans by volume, etc.). If macros need a nudge, add or drop a whole item or another catalog food instead of splitting one.
 
 Catalog fields: id, name, station, meal, serving, course, kcal, p, c, f. Use p/c/f to balance the plate; Python will only check protein and calories.
 {profile.notes.strip()}
@@ -412,7 +413,7 @@ Return JSON:
           "id": "catalog id",
           "name": "exact catalog name",
           "station": "station",
-          "servings": 1.0,
+          "servings": 1,
           "serving_size": "from catalog",
           "notes": "why this is on the plate / how it pairs"
         }}

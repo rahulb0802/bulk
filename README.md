@@ -28,7 +28,11 @@ uv run macro plan
 uv run macro scrape --date today
 uv run macro plan --date 2026-08-20 --no-notify
 uv run macro notify --date 2026-08-20
+# drop queued meal pings for that date (including ones sent without sequence ids)
+uv run macro notify --cancel --date tomorrow
 ```
+
+Later `plan` / `notify` publishes reuse `isr-YYYY-MM-DD-{overview,breakfast,lunch,dinner}` so a re-plan replaces the queue instead of stacking.
 
 Plans are written to `data/plans/YYYY-MM-DD.md`.
 

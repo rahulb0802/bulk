@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from macro.models import DayPlan, Profile
-from macro.notify import notify_plan, plan_to_markdown
+from macro.notify import cancel_plan_notifications, notify_plan, plan_to_markdown
 from macro.plan import generate_plan
 from macro.scrape import load_menu, save_menu, scrape_isr
 from macro.settings import ensure_data_subdir, load_env, load_profile
@@ -61,7 +61,11 @@ def cmd_plan(target: date, profile: Profile, do_scrape: bool, do_notify: bool) -
         print("Sent ntfy overview + per-meal pings.")
 
 
-def cmd_notify(target: date, profile: Profile) -> None:
+def cmd_notify(target: date, profile: Profile, cancel: bool) -> None:
+    if cancel:
+        count = cancel_plan_notifications(target, profile)
+        print(f"Cancelled {count} ntfy message(s) for {target.isoformat()}.")
+        return
     plan = load_saved_plan(target)
     if plan is None:
         raise SystemExit(f"No saved plan for {target.isoformat()}. Run: macro plan")
@@ -95,6 +99,11 @@ def main() -> None:
         action="store_true",
         help="Skip ntfy.sh",
     )
+    parser.add_argument(
+        "--cancel",
+        action="store_true",
+        help="With notify: drop queued ntfy pings for --date instead of sending",
+    )
     args = parser.parse_args()
     target = resolve_date(args.date, profile.timezone)
 
@@ -102,7 +111,7 @@ def main() -> None:
         cmd_scrape(target)
         return
     if args.cmd == "notify":
-        cmd_notify(target, profile)
+        cmd_notify(target, profile, cancel=args.cancel)
         return
     cmd_plan(
         target,

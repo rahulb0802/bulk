@@ -21,38 +21,12 @@ from macro.settings import gemini_api_key, gemini_models, load_staples
 
 MEALS = ("breakfast", "lunch", "dinner")
 
-_SAUCE_RE = re.compile(
-    r"\b(marinara|alfredo|gravy|dressing|ketchup|mustard|hot sauce|soy sauce|"
-    r"teriyaki|salsa|pesto|sauce)\b",
-    re.I,
-)
-_TOPPING_RE = re.compile(
-    r"\b(brown sugar|honey|syrup|jam|jelly|preserves|cinnamon sugar|whipped)\b",
-    re.I,
-)
-_BLAND_BASE_RE = re.compile(
-    r"\b(oatmeal|rolled oats|cream of wheat|grits|plain yogurt)\b",
-    re.I,
-)
-
 
 def meal_band(profile: Profile, meal: str) -> MealBand:
     bands = profile.meal_bands or default_meal_bands()
     if meal in bands:
         return bands[meal]
     return default_meal_bands()[meal]
-
-
-def item_kind(name: str, course: str = "") -> str:
-    blob = f"{name} {course}"
-    course_l = course.lower()
-    if any(word in course_l for word in ("condiment", "sauce", "dressing", "gravy")):
-        return "sauce"
-    if "with " not in name.lower() and _SAUCE_RE.search(name):
-        return "sauce"
-    if _TOPPING_RE.search(blob):
-        return "topping"
-    return "food"
 
 
 def catalog_for_day(menu: DayMenu, profile: Profile) -> list[MenuItem]:
@@ -93,7 +67,6 @@ def catalog_rows(items: list[MenuItem]) -> list[dict[str, object]]:
                 "meal": item.meal,
                 "serving": item.serving_size or nutrition.serving_size,
                 "course": item.course,
-                "kind": item_kind(item.name, item.course),
                 "kcal": round(nutrition.calories),
                 "p": round(nutrition.protein_g, 1),
                 "c": round(nutrition.carbs_g, 1),
@@ -211,37 +184,6 @@ def plan_issues(plan: DayPlan, profile: Profile) -> list[str]:
             issues.append(
                 f"{meal.name} has {meal.protein_g:g}g protein; need at least {band.protein_min:g}g"
             )
-        if meal.carbs_g < 40:
-            issues.append(f"{meal.name} is too low-carb ({meal.carbs_g:g}g); add a starch or fruit")
-        if meal.fat_g < 8:
-            issues.append(f"{meal.name} is too low-fat ({meal.fat_g:g}g); add dairy, nuts, eggs, or oil")
-        kinds = {item_kind(item.name) for item in meal.items}
-        names = " ".join(item.name for item in meal.items)
-        if "sauce" in kinds and not any(
-            word in names.lower()
-            for word in (
-                "pasta",
-                "pizza",
-                "noodle",
-                "spaghetti",
-                "penne",
-                "lasagna",
-                "bread",
-                "rice",
-                "tortilla",
-                "taco",
-                "burrito",
-                "chip",
-            )
-        ):
-            issues.append(
-                f"{meal.name} pairs a sauce with no pasta/pizza/bread/rice base — that is a bad plate"
-            )
-        if _BLAND_BASE_RE.search(names) and "topping" not in kinds:
-            if any(_BLAND_BASE_RE.search(item.name) for item in meal.items):
-                issues.append(
-                    f"{meal.name} has a bland base with no topping; add a catalog topping or swap the base"
-                )
     return issues
 
 
@@ -249,15 +191,11 @@ def plan_ok(plan: DayPlan, profile: Profile) -> bool:
     return not plan_issues(plan, profile)
 
 
-def _usable_fill_item(item: MenuItem) -> bool:
-    return item_kind(item.name, item.course) == "food"
-
-
 def fill_gaps(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPlan:
-    """Greedy fill from the posted catalog if the LLM undershoots targets."""
+    """Greedy fill from the posted catalog if the LLM undershoots protein/calorie targets."""
     by_meal: dict[str, list[MenuItem]] = {meal: [] for meal in MEALS}
     for item in catalog:
-        if item.meal in by_meal and _usable_fill_item(item):
+        if item.meal in by_meal:
             by_meal[item.meal].append(item)
     protein_sorted = {
         meal: sorted(
@@ -332,11 +270,7 @@ def fill_gaps(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPl
                 "Added to hit protein floor" if need_protein_here else "Added to balance meal calories",
             )
             continue
-        extras = [
-            item
-            for item in meal.items
-            if item.servings < 4 and item_kind(item.name) == "food"
-        ]
+        extras = [item for item in meal.items if item.servings < 4]
         if not extras:
             break
         extras.sort(
@@ -439,10 +373,12 @@ def build_prompt(
 ) -> tuple[str, str]:
     system = (
         "You are a dining-hall plate coach for an ovo-lacto vegetarian lifter. "
-        "Build complete, edible plates from the catalog only. Macros, pairing, and "
-        "taste all matter. Do not invent foods. Return a single JSON object."
+        "Reason about the menu: what belongs on a plate together, what tastes "
+        "complete, what is actually healthy training food, and how carbs and fat "
+        "support the protein target. Choose only catalog items. Do not invent foods. "
+        "Return a single JSON object."
     )
-    retry = f"\nFix these problems and rebuild the whole day:\n{retry_hint}\n" if retry_hint else ""
+    retry = f"\nFix these protein/calorie problems and rebuild the whole day:\n{retry_hint}\n" if retry_hint else ""
     user = f"""ISR dining hall plan for {target.isoformat()}. Ovo-lacto vegetarian lifter.
 
 Dining-hall protein floor (one shake is outside this plan; do not include shakes): {profile.protein_g} g
@@ -452,19 +388,13 @@ Max items per meal: {profile.max_items_per_meal}
 Meal bands (hard constraints — do not dump calories into one meal):
 {_band_lines(profile)}
 
-Each meal must be a complete plate:
-- Protein center (eggs, tofu, beans, yogurt, cottage cheese, etc.)
-- Carb for training (oats, bread, rice, pasta, fruit, potatoes)
-- Some fat (eggs, cheese, nuts, avocado, dairy, oil) — not protein-only
-- Flavor: sauces and toppings only with a food they belong on
+Reason about each plate before you pick items:
+- Build a complete meal: a protein center, enough carbs for lifting, and some healthy fat. Do not serve protein-only plates or a pile of steamed vegetables with a random sauce.
+- Taste and pairing: sauces and toppings only go with foods they belong on. Marinara belongs on pasta, not edamame and broccoli. Oatmeal should include a topping from the catalog (brown sugar, fruit, honey, nuts, yogurt) if one exists; if none exists, pick a different breakfast rather than serving it plain.
+- Health: prefer whole, training-friendly foods (eggs, yogurt, tofu, beans, grains, fruit, vegetables, simple cooked entrees). Skip pizza, fries, dessert, and similar junk even if the calories look convenient. Pasta is a fine carb; pizza is not.
+- Vegetables are a side, not the meal. Prefer fewer stations when it does not wreck the plate.
 
-Pairing rules:
-- kind=sauce (marinara, gravy, dressing, salsa) only with pasta, pizza, bread, rice, or the named entree. Never on steamed broccoli, edamame, or a random veg pile.
-- Oatmeal, grits, cream of wheat, or plain yogurt must include a catalog topping (brown sugar, fruit, honey, nuts, jam) if one exists. If none exists, do not serve that bland base — pick eggs, yogurt parfait, or another complete breakfast.
-- Vegetables are a side, not the meal. Do not plate two steamed sides and a sauce.
-- Prefer fewer stations, but never at the cost of a coherent plate.
-
-Catalog fields: id, name, station, meal, serving, course, kind (food|sauce|topping), kcal, p, c, f.
+Catalog fields: id, name, station, meal, serving, course, kcal, p, c, f. Use p/c/f to balance the plate; Python will only check protein and calories.
 {profile.notes.strip()}
 {retry}
 Catalog (use these ids only):

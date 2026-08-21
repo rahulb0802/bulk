@@ -36,7 +36,7 @@ Later `plan` / `notify` publishes reuse `isr-YYYY-MM-DD-{overview,breakfast,lunc
 
 Plans are written to `data/plans/YYYY-MM-DD.md`.
 
-Nightly GitHub Action (8:00pm CDT): add repository secrets `GEMINI_API_KEY` and `NTFY_TOPIC`, then enable Actions.
+Nightly GitHub Action (8:00pm CDT): add repository secrets `GEMINI_API_KEY` and `NTFY_TOPIC`, then enable Actions. Each run uploads `data/plans/*.md` as the `isr-plan` artifact (Actions → run → Artifacts).
 
 The planner uses Gemini 3.6 Flash, and falls back to 3.5 Flash if 3.6 is unavailable.
 

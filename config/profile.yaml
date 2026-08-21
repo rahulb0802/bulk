@@ -20,9 +20,9 @@ timezone: America/Chicago
 # ntfy pings this many minutes before each meal
 notify_lead_minutes: 45
 meals:
-  breakfast: "09:00"
-  lunch: "13:00"
-  dinner: "19:00"
+  breakfast: "07:00"
+  lunch: "11:00"
+  dinner: "17:00"
 # Case-insensitive substrings to skip even if vegetarian
 dislikes: []
 # Extra notes injected into the LLM prompt

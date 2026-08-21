@@ -11,7 +11,7 @@ from macro.settings import ntfy_base_url, ntfy_topic
 
 def meal_markdown(meal: MealPlan) -> str:
     lines = [
-        f"**ISR {meal.name} · {meal.protein_g:g}g P · {meal.calories:g} kcal**",
+        f"**ISR {meal.name} · {meal.protein_g:g}g P · {meal.carbs_g:g}g C · {meal.fat_g:g}g F · {meal.calories:g} kcal**",
     ]
     for i, item in enumerate(meal.items, start=1):
         amount = f"{item.servings:g} × {item.serving_size}" if item.serving_size else f"{item.servings:g} servings"
@@ -28,13 +28,13 @@ def meal_markdown(meal: MealPlan) -> str:
 
 def overview_markdown(plan: DayPlan) -> str:
     lines = [
-        f"**ISR {plan.date} · {plan.protein_g:g}g P · {plan.calories:g} kcal**",
+        f"**ISR {plan.date} · {plan.protein_g:g}g P · {plan.carbs_g:g}g C · {plan.fat_g:g}g F · {plan.calories:g} kcal**",
         "",
     ]
     for meal in plan.meals:
         names = ", ".join(item.name for item in meal.items[:4])
         lines.append(
-            f"- **{meal.name.title()}**: {meal.protein_g:g}g P / {meal.calories:g} kcal — {names}"
+            f"- **{meal.name.title()}**: {meal.protein_g:g}g P / {meal.carbs_g:g}g C / {meal.fat_g:g}g F / {meal.calories:g} kcal — {names}"
         )
     if plan.protein_gap_plan:
         lines.append("")

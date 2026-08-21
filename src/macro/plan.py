@@ -10,14 +10,49 @@ from google.genai import types
 from macro.models import (
     DayMenu,
     DayPlan,
+    MealBand,
     MealPlan,
     MenuItem,
     PlannedItem,
     Profile,
+    default_meal_bands,
 )
 from macro.settings import gemini_api_key, gemini_models, load_staples
 
 MEALS = ("breakfast", "lunch", "dinner")
+
+_SAUCE_RE = re.compile(
+    r"\b(marinara|alfredo|gravy|dressing|ketchup|mustard|hot sauce|soy sauce|"
+    r"teriyaki|salsa|pesto|sauce)\b",
+    re.I,
+)
+_TOPPING_RE = re.compile(
+    r"\b(brown sugar|honey|syrup|jam|jelly|preserves|cinnamon sugar|whipped)\b",
+    re.I,
+)
+_BLAND_BASE_RE = re.compile(
+    r"\b(oatmeal|rolled oats|cream of wheat|grits|plain yogurt)\b",
+    re.I,
+)
+
+
+def meal_band(profile: Profile, meal: str) -> MealBand:
+    bands = profile.meal_bands or default_meal_bands()
+    if meal in bands:
+        return bands[meal]
+    return default_meal_bands()[meal]
+
+
+def item_kind(name: str, course: str = "") -> str:
+    blob = f"{name} {course}"
+    course_l = course.lower()
+    if any(word in course_l for word in ("condiment", "sauce", "dressing", "gravy")):
+        return "sauce"
+    if "with " not in name.lower() and _SAUCE_RE.search(name):
+        return "sauce"
+    if _TOPPING_RE.search(blob):
+        return "topping"
+    return "food"
 
 
 def catalog_for_day(menu: DayMenu, profile: Profile) -> list[MenuItem]:
@@ -57,8 +92,12 @@ def catalog_rows(items: list[MenuItem]) -> list[dict[str, object]]:
                 "station": item.station,
                 "meal": item.meal,
                 "serving": item.serving_size or nutrition.serving_size,
+                "course": item.course,
+                "kind": item_kind(item.name, item.course),
                 "kcal": round(nutrition.calories),
                 "p": round(nutrition.protein_g, 1),
+                "c": round(nutrition.carbs_g, 1),
+                "f": round(nutrition.fat_g, 1),
             }
         )
     return rows
@@ -107,12 +146,16 @@ def recompute(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPl
                     serving_size=item.serving_size or nutrition.serving_size,
                     protein_g=round(nutrition.protein_g * servings, 1),
                     calories=round(nutrition.calories * servings),
+                    carbs_g=round(nutrition.carbs_g * servings, 1),
+                    fat_g=round(nutrition.fat_g * servings, 1),
                     notes=raw.notes,
                 )
             )
         rebuilt = rebuilt[: profile.max_items_per_meal]
         protein = sum(i.protein_g for i in rebuilt)
         calories = sum(i.calories for i in rebuilt)
+        carbs = sum(i.carbs_g for i in rebuilt)
+        fat = sum(i.fat_g for i in rebuilt)
         stations = []
         for item in rebuilt:
             if item.station not in stations:
@@ -125,6 +168,8 @@ def recompute(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPl
                 plate_tips=meal.plate_tips,
                 protein_g=round(protein, 1),
                 calories=round(calories),
+                carbs_g=round(carbs, 1),
+                fat_g=round(fat, 1),
             )
         )
     names = {m.name for m in meals}
@@ -135,25 +180,84 @@ def recompute(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPl
     plan.meals = meals
     plan.protein_g = round(sum(m.protein_g for m in meals), 1)
     plan.calories = round(sum(m.calories for m in meals))
+    plan.carbs_g = round(sum(m.carbs_g for m in meals), 1)
+    plan.fat_g = round(sum(m.fat_g for m in meals), 1)
     plan.warnings = warnings
     return plan
 
 
-def plan_ok(plan: DayPlan, profile: Profile) -> bool:
+def plan_issues(plan: DayPlan, profile: Profile) -> list[str]:
+    issues: list[str] = []
     if plan.protein_g < profile.protein_g:
-        return False
+        issues.append(
+            f"Day protein {plan.protein_g:g}g is below the {profile.protein_g:g}g dining-hall floor"
+        )
     if plan.calories < profile.calories_min - 50:
-        return False
+        issues.append(f"Day calories {plan.calories} below {profile.calories_min}")
     if plan.calories > profile.calories_max + 150:
-        return False
-    return True
+        issues.append(f"Day calories {plan.calories} above {profile.calories_max}")
+    for meal in plan.meals:
+        band = meal_band(profile, meal.name)
+        if meal.calories < band.calories_min:
+            issues.append(
+                f"{meal.name} is {meal.calories} kcal; raise it to {band.calories_min:g}-{band.calories_max:g}"
+            )
+        if meal.calories > band.calories_max:
+            issues.append(
+                f"{meal.name} is {meal.calories} kcal; cut it to {band.calories_min:g}-{band.calories_max:g} "
+                "and move food to another meal"
+            )
+        if meal.protein_g < band.protein_min:
+            issues.append(
+                f"{meal.name} has {meal.protein_g:g}g protein; need at least {band.protein_min:g}g"
+            )
+        if meal.carbs_g < 40:
+            issues.append(f"{meal.name} is too low-carb ({meal.carbs_g:g}g); add a starch or fruit")
+        if meal.fat_g < 8:
+            issues.append(f"{meal.name} is too low-fat ({meal.fat_g:g}g); add dairy, nuts, eggs, or oil")
+        kinds = {item_kind(item.name) for item in meal.items}
+        names = " ".join(item.name for item in meal.items)
+        if "sauce" in kinds and not any(
+            word in names.lower()
+            for word in (
+                "pasta",
+                "pizza",
+                "noodle",
+                "spaghetti",
+                "penne",
+                "lasagna",
+                "bread",
+                "rice",
+                "tortilla",
+                "taco",
+                "burrito",
+                "chip",
+            )
+        ):
+            issues.append(
+                f"{meal.name} pairs a sauce with no pasta/pizza/bread/rice base — that is a bad plate"
+            )
+        if _BLAND_BASE_RE.search(names) and "topping" not in kinds:
+            if any(_BLAND_BASE_RE.search(item.name) for item in meal.items):
+                issues.append(
+                    f"{meal.name} has a bland base with no topping; add a catalog topping or swap the base"
+                )
+    return issues
+
+
+def plan_ok(plan: DayPlan, profile: Profile) -> bool:
+    return not plan_issues(plan, profile)
+
+
+def _usable_fill_item(item: MenuItem) -> bool:
+    return item_kind(item.name, item.course) == "food"
 
 
 def fill_gaps(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPlan:
     """Greedy fill from the posted catalog if the LLM undershoots targets."""
     by_meal: dict[str, list[MenuItem]] = {meal: [] for meal in MEALS}
     for item in catalog:
-        if item.meal in by_meal:
+        if item.meal in by_meal and _usable_fill_item(item):
             by_meal[item.meal].append(item)
     protein_sorted = {
         meal: sorted(
@@ -178,54 +282,71 @@ def fill_gaps(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPl
                 serving_size=item.serving_size or nutrition.serving_size,
                 protein_g=round(nutrition.protein_g * servings, 1),
                 calories=round(nutrition.calories * servings),
+                carbs_g=round(nutrition.carbs_g * servings, 1),
+                fat_g=round(nutrition.fat_g * servings, 1),
                 notes=note or "Added to hit targets",
             )
         )
         if item.station not in meal.station_order:
             meal.station_order.append(item.station)
 
+    def room_in(meal: MealPlan) -> bool:
+        band = meal_band(profile, meal.name)
+        return meal.calories < band.calories_max - 40
+
     for _ in range(30):
         plan = recompute(plan, catalog, profile)
+        short_meals = []
+        for meal in plan.meals:
+            band = meal_band(profile, meal.name)
+            if meal.calories < band.calories_min or meal.protein_g < band.protein_min:
+                short_meals.append(meal)
         need_protein = plan.protein_g < profile.protein_g
         need_cals = plan.calories < profile.calories_min
-        if not need_protein and not need_cals:
+        if not short_meals and not need_protein and not need_cals:
             break
         used = {(m.name, i.id) for m in plan.meals for i in m.items}
-        candidates = [m for m in plan.meals if len(m.items) < profile.max_items_per_meal]
-        if not candidates:
-            best: PlannedItem | None = None
-            best_meal: MealPlan | None = None
-            for meal in plan.meals:
-                for item in meal.items:
-                    if item.servings >= 4:
-                        continue
-                    score = item.protein_g if need_protein else item.calories
-                    best_score = 0.0
-                    if best is not None:
-                        best_score = best.protein_g if need_protein else best.calories
-                    if best is None or score > best_score:
-                        best = item
-                        best_meal = meal
-            if best and best_meal:
-                best.servings += 1
-                continue
+        if short_meals:
+            meal = min(short_meals, key=lambda m: m.calories)
+            need_protein_here = meal.protein_g < meal_band(profile, meal.name).protein_min or need_protein
+        else:
+            candidates = [m for m in plan.meals if room_in(m)]
+            if not candidates:
+                break
+            meal = min(
+                candidates,
+                key=lambda m: m.protein_g if need_protein else m.calories,
+            )
+            need_protein_here = need_protein
+        if not room_in(meal) and len(meal.items) >= profile.max_items_per_meal:
             break
-        meal = min(
-            candidates,
-            key=lambda m: m.protein_g if need_protein else m.calories,
-        )
-        pool = protein_sorted[meal.name] if need_protein else calorie_sorted[meal.name]
-        nxt = next((i for i in pool if (meal.name, i.id) not in used), None)
-        if nxt is None:
+        if len(meal.items) < profile.max_items_per_meal:
+            pool = protein_sorted[meal.name] if need_protein_here else calorie_sorted[meal.name]
+            nxt = next((i for i in pool if (meal.name, i.id) not in used), None)
+            if nxt is None:
+                break
+            add_to(
+                meal,
+                nxt,
+                1,
+                "Added to hit protein floor" if need_protein_here else "Added to balance meal calories",
+            )
+            continue
+        extras = [
+            item
+            for item in meal.items
+            if item.servings < 4 and item_kind(item.name) == "food"
+        ]
+        if not extras:
             break
-        add_to(
-            meal,
-            nxt,
-            1,
-            "Added to hit protein floor" if need_protein else "Added to fill calorie band",
+        extras.sort(
+            key=lambda i: i.protein_g / max(i.calories, 1) if need_protein_here else i.calories,
+            reverse=True,
         )
+        extras[0].servings += 1
 
     plan = recompute(plan, catalog, profile)
+    leftover = plan_issues(plan, profile)
     if plan.protein_g < profile.protein_g:
         gap = round(profile.protein_g - plan.protein_g, 1)
         plan.protein_gap_plan = (
@@ -233,6 +354,9 @@ def fill_gaps(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPl
             "Take extra servings of the highest-protein listed items."
         )
         plan.warnings.append(plan.protein_gap_plan)
+    for issue in leftover:
+        if issue not in plan.warnings:
+            plan.warnings.append(issue)
     if plan.calories < profile.calories_min:
         plan.warnings.append(
             f"Calories {plan.calories} below {profile.calories_min}; "
@@ -296,6 +420,17 @@ def dayplan_from_llm(raw: dict[str, object], target: date) -> DayPlan:
     )
 
 
+def _band_lines(profile: Profile) -> str:
+    lines = []
+    for meal in MEALS:
+        band = meal_band(profile, meal)
+        lines.append(
+            f"- {meal}: {band.calories_min:g}-{band.calories_max:g} kcal, "
+            f"≥{band.protein_min:g}g protein, include carbs and fat"
+        )
+    return "\n".join(lines)
+
+
 def build_prompt(
     target: date,
     profile: Profile,
@@ -303,16 +438,33 @@ def build_prompt(
     retry_hint: str | None = None,
 ) -> tuple[str, str]:
     system = (
-        "You are a dining-hall plate coach for an ovo-lacto vegetarian UIUC student. "
-        "Choose only items from the provided catalog. Do not invent foods or macros. "
-        "Return a single JSON object."
+        "You are a dining-hall plate coach for an ovo-lacto vegetarian lifter. "
+        "Build complete, edible plates from the catalog only. Macros, pairing, and "
+        "taste all matter. Do not invent foods. Return a single JSON object."
     )
-    retry = f"\nRetry: {retry_hint}\n" if retry_hint else ""
-    user = f"""ISR dining hall plan for {target.isoformat()}. Ovo-lacto vegetarian.
+    retry = f"\nFix these problems and rebuild the whole day:\n{retry_hint}\n" if retry_hint else ""
+    user = f"""ISR dining hall plan for {target.isoformat()}. Ovo-lacto vegetarian lifter.
 
-Protein floor (dining only; shakes already cover 50g): {profile.protein_g} g
-Calorie band: {profile.calories_min}-{profile.calories_max} kcal
+Dining-hall protein floor (one shake is outside this plan; do not include shakes): {profile.protein_g} g
+Day calorie band: {profile.calories_min}-{profile.calories_max} kcal
 Max items per meal: {profile.max_items_per_meal}
+
+Meal bands (hard constraints — do not dump calories into one meal):
+{_band_lines(profile)}
+
+Each meal must be a complete plate:
+- Protein center (eggs, tofu, beans, yogurt, cottage cheese, etc.)
+- Carb for training (oats, bread, rice, pasta, fruit, potatoes)
+- Some fat (eggs, cheese, nuts, avocado, dairy, oil) — not protein-only
+- Flavor: sauces and toppings only with a food they belong on
+
+Pairing rules:
+- kind=sauce (marinara, gravy, dressing, salsa) only with pasta, pizza, bread, rice, or the named entree. Never on steamed broccoli, edamame, or a random veg pile.
+- Oatmeal, grits, cream of wheat, or plain yogurt must include a catalog topping (brown sugar, fruit, honey, nuts, jam) if one exists. If none exists, do not serve that bland base — pick eggs, yogurt parfait, or another complete breakfast.
+- Vegetables are a side, not the meal. Do not plate two steamed sides and a sauce.
+- Prefer fewer stations, but never at the cost of a coherent plate.
+
+Catalog fields: id, name, station, meal, serving, course, kind (food|sauce|topping), kcal, p, c, f.
 {profile.notes.strip()}
 {retry}
 Catalog (use these ids only):
@@ -324,7 +476,7 @@ Return JSON:
     {{
       "name": "breakfast" | "lunch" | "dinner",
       "station_order": ["walking order"],
-      "plate_tips": "how to fit this on one plate, what to skip, what to double if still hungry",
+      "plate_tips": "how to combine these so they taste like a real meal; what to skip or double",
       "items": [
         {{
           "id": "catalog id",
@@ -332,7 +484,7 @@ Return JSON:
           "station": "station",
           "servings": 1.0,
           "serving_size": "from catalog",
-          "notes": "short plating note"
+          "notes": "why this is on the plate / how it pairs"
         }}
       ]
     }}
@@ -341,7 +493,7 @@ Return JSON:
   "protein_gap_plan": null
 }}
 
-Cover all 3 meals. Prefer high protein per calorie. Prefer items from fewer stations when possible. Do not invent foods.
+Cover all 3 meals. Hit the protein floor without starving carbs or fat. Do not invent foods.
 """.strip()
     return system, user
 
@@ -406,9 +558,16 @@ def generate_plan(menu: DayMenu, profile: Profile, target: date) -> DayPlan:
     if not items:
         raise SystemExit(f"No vegetarian items with nutrition for {target.isoformat()}")
     rows = catalog_rows(items)
-    system, user = build_prompt(target, profile, rows)
-    raw = ask_llm(system, user)
-    plan = recompute(dayplan_from_llm(raw, target), items, profile)
-    if not plan_ok(plan, profile):
-        plan = fill_gaps(plan, items, profile)
-    return plan
+    retry_hint = None
+    plan: DayPlan | None = None
+    for attempt in range(2):
+        system, user = build_prompt(target, profile, rows, retry_hint)
+        raw = ask_llm(system, user)
+        plan = recompute(dayplan_from_llm(raw, target), items, profile)
+        issues = plan_issues(plan, profile)
+        if not issues:
+            return plan
+        retry_hint = "; ".join(issues)
+        print(f"Retrying plan ({attempt + 1}): {retry_hint}")
+    assert plan is not None
+    return fill_gaps(plan, items, profile)

@@ -45,6 +45,8 @@ class PlannedItem(BaseModel):
     serving_size: str = ""
     protein_g: float = 0
     calories: float = 0
+    carbs_g: float = 0
+    fat_g: float = 0
     notes: str = ""
 
 
@@ -55,6 +57,8 @@ class MealPlan(BaseModel):
     plate_tips: str = ""
     protein_g: float = 0
     calories: float = 0
+    carbs_g: float = 0
+    fat_g: float = 0
 
 
 class DayPlan(BaseModel):
@@ -75,12 +79,27 @@ class DayPlan(BaseModel):
         return None
 
 
+class MealBand(BaseModel):
+    calories_min: float
+    calories_max: float
+    protein_min: float = 30
+
+
+def default_meal_bands() -> dict[str, MealBand]:
+    return {
+        "breakfast": MealBand(calories_min=550, calories_max=850, protein_min=35),
+        "lunch": MealBand(calories_min=650, calories_max=950, protein_min=45),
+        "dinner": MealBand(calories_min=650, calories_max=950, protein_min=45),
+    }
+
+
 class Profile(BaseModel):
     diet: str = "ovo-lacto vegetarian"
-    protein_g: float = 110
+    protein_g: float = 135
     calories_min: float = 2200
     calories_max: float = 2400
     max_items_per_meal: int = 6
+    meal_bands: dict[str, MealBand] = Field(default_factory=default_meal_bands)
     timezone: str = "America/Chicago"
     notify_lead_minutes: int = 45
     meals: dict[str, str] = Field(

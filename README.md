@@ -4,8 +4,6 @@ Personal tool that scrapes tomorrow's [ISR EatSmart](https://eatsmart.housing.il
 
 One protein shake is excluded. Macros are recomputed in Python from official nutrition labels so the model cannot invent numbers. Calories are also split per meal (roughly 550–850 breakfast, 650–950 lunch/dinner) so the day is not one huge lunch and a tiny dinner.
 
-Protein from shakes is excluded. Macros are recomputed in Python from official nutrition labels.
-
 ## Setup
 
 ```bash

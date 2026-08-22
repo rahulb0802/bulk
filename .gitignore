@@ -10,3 +10,4 @@ data/cache/
 data/plans/
 data/menus/
 .python-version
+.cursorignore

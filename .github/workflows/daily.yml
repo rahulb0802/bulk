@@ -13,9 +13,18 @@ jobs:
       TZ: America/Chicago
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      FOOD_OUT_DISPATCH_TOKEN: ${{ secrets.FOOD_OUT_DISPATCH_TOKEN }}
+      FOOD_OUT_GITHUB_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      - name: Cache nutrition labels
+        uses: actions/cache@v4
+        with:
+          path: data/cache/nutrition.json
+          key: nutrition-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            nutrition-${{ runner.os }}-
       - name: Install and plan tomorrow
         run: |
           uv sync

@@ -74,6 +74,18 @@ def ntfy_base_url() -> str:
     return os.environ.get("NTFY_BASE_URL", "https://ntfy.sh").rstrip("/")
 
 
+def food_out_dispatch_token() -> str | None:
+    token = os.environ.get("FOOD_OUT_DISPATCH_TOKEN", "").strip()
+    return token or None
+
+
+def food_out_github_repo() -> str | None:
+    repo = (
+        os.environ.get("FOOD_OUT_GITHUB_REPO") or os.environ.get("GITHUB_REPOSITORY") or ""
+    ).strip()
+    return repo or None
+
+
 def ensure_data_subdir(name: str) -> Path:
     path = project_root() / "data" / name
     path.mkdir(parents=True, exist_ok=True)

@@ -366,6 +366,19 @@ def _band_lines(profile: Profile) -> str:
     return "\n".join(lines)
 
 
+def _plate_rules() -> str:
+    return """
+Reason about each plate before you pick items:
+- Macros first: every meal MUST land in its calorie band and protein floor using catalog p/c/f. Undershooting "to keep it simple" is a failed plate. Add catalog items or extra servings until the band is honestly hit.
+- Balanced training meal: a protein center, a real carb (oatmeal, grains, potatoes, beans, fruit — not only a muffin), some healthy fat, and a fruit or vegetable from that meal's catalog when one exists. Do not serve a two-item breakfast of hard-boiled eggs and muffins, or protein plus a pastry and call it done.
+- Complete plate: do not serve protein-only plates or a pile of steamed vegetables with a random sauce.
+- Taste and pairing: sauces and toppings only go with foods they belong on. Marinara belongs on pasta, not edamame and broccoli. Oatmeal should include a topping from the catalog (brown sugar, fruit, honey, nuts, yogurt) if one exists; if none exists, pick a different breakfast rather than serving it plain.
+- Health: prefer whole, training-friendly foods (eggs, yogurt, tofu, beans, grains, fruit, vegetables, simple cooked entrees). Skip pizza, fries, dessert, and similar junk even if the calories look convenient. Pasta is a fine carb; pizza is not. A muffin can be a side, never the only carb.
+- Vegetables are a side, not the meal. Prefer fewer stations when it does not wreck the plate or the macro band.
+- Servings: never use fractions for whole/discrete food items. Eggs, muffins, bagels, bananas, apples, cookies, patties, pieces of fruit, and similar countables must be whole numbers (1, 2, 3…). Do not prescribe half an egg or 1.5 muffins. Fractional servings are only allowed for scoopable or pourable foods (oatmeal, rice, yogurt, sauce, beans by volume, etc.). If macros need a nudge, add or drop a whole item or another catalog food instead of splitting one.
+""".strip()
+
+
 def build_prompt(
     target: date,
     profile: Profile,
@@ -374,9 +387,8 @@ def build_prompt(
 ) -> tuple[str, str]:
     system = (
         "You are a dining-hall plate coach for an ovo-lacto vegetarian lifter. "
-        "Reason about the menu: what belongs on a plate together, what tastes "
-        "complete, what is actually healthy training food, and how carbs and fat "
-        "support the protein target. Choose only catalog items. Do not invent foods. "
+        "Every meal must be healthy, balanced, and inside its protein/calorie band. "
+        "Eggs and a muffin is not breakfast. Choose only catalog items. Do not invent foods. "
         "Return a single JSON object."
     )
     retry = f"\nFix these protein/calorie problems and rebuild the whole day:\n{retry_hint}\n" if retry_hint else ""
@@ -386,15 +398,10 @@ Dining-hall protein floor (one shake is outside this plan; do not include shakes
 Day calorie band: {profile.calories_min}-{profile.calories_max} kcal
 Max items per meal: {profile.max_items_per_meal}
 
-Meal bands (hard constraints — do not dump calories into one meal):
+Meal bands (hard constraints — hit them on every meal; do not dump calories into one meal):
 {_band_lines(profile)}
 
-Reason about each plate before you pick items:
-- Build a complete meal: a protein center, enough carbs for lifting, and some healthy fat. Do not serve protein-only plates or a pile of steamed vegetables with a random sauce.
-- Taste and pairing: sauces and toppings only go with foods they belong on. Marinara belongs on pasta, not edamame and broccoli. Oatmeal should include a topping from the catalog (brown sugar, fruit, honey, nuts, yogurt) if one exists; if none exists, pick a different breakfast rather than serving it plain.
-- Health: prefer whole, training-friendly foods (eggs, yogurt, tofu, beans, grains, fruit, vegetables, simple cooked entrees). Skip pizza, fries, dessert, and similar junk even if the calories look convenient. Pasta is a fine carb; pizza is not.
-- Vegetables are a side, not the meal. Prefer fewer stations when it does not wreck the plate.
-- Servings: never use fractions for whole/discrete food items. Eggs, muffins, bagels, bananas, apples, cookies, patties, pieces of fruit, and similar countables must be whole numbers (1, 2, 3…). Do not prescribe half an egg or 1.5 muffins. Fractional servings are only allowed for scoopable or pourable foods (oatmeal, rice, yogurt, sauce, beans by volume, etc.). If macros need a nudge, add or drop a whole item or another catalog food instead of splitting one.
+{_plate_rules()}
 
 Catalog fields: id, name, station, meal, serving, course, kcal, p, c, f. Use p/c/f to balance the plate; Python will only check protein and calories.
 {profile.notes.strip()}
@@ -425,7 +432,7 @@ Return JSON:
   "protein_gap_plan": null
 }}
 
-Cover all 3 meals. Hit the protein floor without starving carbs or fat. Do not invent foods.
+Cover all 3 meals. Each meal must be a balanced plate inside its band. Hit the day protein floor without starving carbs or fat. Do not invent foods.
 """.strip()
     return system, user
 
@@ -541,9 +548,8 @@ def build_meal_prompt(
 ) -> tuple[str, str]:
     system = (
         "You are a dining-hall plate coach for an ovo-lacto vegetarian lifter. "
-        "Reason about the menu: what belongs on a plate together, what tastes "
-        "complete, what is actually healthy training food, and how carbs and fat "
-        "support the protein target. Choose only catalog items. Do not invent foods. "
+        "The replacement meal must be healthy, balanced, and inside its protein/calorie band. "
+        "Eggs and a muffin is not breakfast. Choose only catalog items. Do not invent foods. "
         "Return a single JSON object."
     )
     band = meal_band(profile, meal_name)
@@ -566,12 +572,7 @@ Max items per meal: {profile.max_items_per_meal}
 Locked meals (do not output these; they already happened or still stand):
 {_locked_meal_lines(existing, meal_name)}
 
-Reason about the replacement plate:
-- Build a complete meal: a protein center, enough carbs for lifting, and some healthy fat. Do not serve protein-only plates or a pile of steamed vegetables with a random sauce.
-- Taste and pairing: sauces and toppings only go with foods they belong on. Marinara belongs on pasta, not edamame and broccoli. Oatmeal should include a topping from the catalog (brown sugar, fruit, honey, nuts, yogurt) if one exists; if none exists, pick a different breakfast rather than serving it plain.
-- Health: prefer whole, training-friendly foods (eggs, yogurt, tofu, beans, grains, fruit, vegetables, simple cooked entrees). Skip pizza, fries, dessert, and similar junk even if the calories look convenient. Pasta is a fine carb; pizza is not.
-- Vegetables are a side, not the meal. Prefer fewer stations when it does not wreck the plate.
-- Servings: never use fractions for whole/discrete food items. Eggs, muffins, bagels, bananas, apples, cookies, patties, pieces of fruit, and similar countables must be whole numbers (1, 2, 3…). Do not prescribe half an egg or 1.5 muffins. Fractional servings are only allowed for scoopable or pourable foods (oatmeal, rice, yogurt, sauce, beans by volume, etc.). If macros need a nudge, add or drop a whole item or another catalog food instead of splitting one.
+{_plate_rules()}
 
 Catalog fields: id, name, station, meal, serving, course, kcal, p, c, f. Use p/c/f to balance the plate; Python will only check protein and calories.
 {profile.notes.strip()}
@@ -602,7 +603,7 @@ Return JSON:
   "protein_gap_plan": null
 }}
 
-Return only {meal_name}. Hit the protein floor with the locked meals plus this plate. Do not invent foods.
+Return only {meal_name}. The plate must be balanced and inside its band. Hit the protein floor with the locked meals plus this plate. Do not invent foods.
 """.strip()
     return system, user
 

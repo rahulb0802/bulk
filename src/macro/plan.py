@@ -370,10 +370,10 @@ def _plate_rules() -> str:
     return """
 Reason about each plate before you pick items:
 - Macros first: every meal MUST land in its calorie band and protein floor using catalog p/c/f. Undershooting "to keep it simple" is a failed plate. Add catalog items or extra servings until the band is honestly hit.
-- Balanced training meal: a protein center, a real carb (oatmeal, grains, potatoes, beans, fruit — not only a muffin), some healthy fat, and a fruit or vegetable from that meal's catalog when one exists. Do not serve a two-item breakfast of hard-boiled eggs and muffins, or protein plus a pastry and call it done.
+- Balanced training meal: a protein center, a real carb (oatmeal, grains, potatoes, beans, fruit — not only a pastry), some healthy fat, and a fruit or vegetable from that meal's catalog when one exists. Sparse plates fail: eggs and muffins, yogurt and granola with nothing else, a sandwich and nothing green, protein plus one starch and no produce. Those are examples, not an exhaustive list.
 - Complete plate: do not serve protein-only plates or a pile of steamed vegetables with a random sauce.
 - Taste and pairing: sauces and toppings only go with foods they belong on. Marinara belongs on pasta, not edamame and broccoli. Oatmeal should include a topping from the catalog (brown sugar, fruit, honey, nuts, yogurt) if one exists; if none exists, pick a different breakfast rather than serving it plain.
-- Health: prefer whole, training-friendly foods (eggs, yogurt, tofu, beans, grains, fruit, vegetables, simple cooked entrees). Skip pizza, fries, dessert, and similar junk even if the calories look convenient. Pasta is a fine carb; pizza is not. A muffin can be a side, never the only carb.
+- Health: prefer whole, training-friendly foods (eggs, yogurt, tofu, beans, grains, fruit, vegetables, simple cooked entrees). Skip pizza, fries, dessert, and similar junk even if the calories look convenient. Pasta is a fine carb; pizza is not. A pastry can be a side, never the only carb.
 - Vegetables are a side, not the meal. Prefer fewer stations when it does not wreck the plate or the macro band.
 - Servings: never use fractions for whole/discrete food items. Eggs, muffins, bagels, bananas, apples, cookies, patties, pieces of fruit, and similar countables must be whole numbers (1, 2, 3…). Do not prescribe half an egg or 1.5 muffins. Fractional servings are only allowed for scoopable or pourable foods (oatmeal, rice, yogurt, sauce, beans by volume, etc.). If macros need a nudge, add or drop a whole item or another catalog food instead of splitting one.
 """.strip()
@@ -388,7 +388,8 @@ def build_prompt(
     system = (
         "You are a dining-hall plate coach for an ovo-lacto vegetarian lifter. "
         "Every meal must be healthy, balanced, and inside its protein/calorie band. "
-        "Eggs and a muffin is not breakfast. Choose only catalog items. Do not invent foods. "
+        "Sparse two-item plates fail (e.g. eggs and a muffin for breakfast). "
+        "Choose only catalog items. Do not invent foods. "
         "Return a single JSON object."
     )
     retry = f"\nFix these protein/calorie problems and rebuild the whole day:\n{retry_hint}\n" if retry_hint else ""
@@ -549,7 +550,8 @@ def build_meal_prompt(
     system = (
         "You are a dining-hall plate coach for an ovo-lacto vegetarian lifter. "
         "The replacement meal must be healthy, balanced, and inside its protein/calorie band. "
-        "Eggs and a muffin is not breakfast. Choose only catalog items. Do not invent foods. "
+        "Sparse two-item plates fail (e.g. eggs and a muffin for breakfast). "
+        "Choose only catalog items. Do not invent foods. "
         "Return a single JSON object."
     )
     band = meal_band(profile, meal_name)

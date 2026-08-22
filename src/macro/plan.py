@@ -17,6 +17,7 @@ from macro.models import (
     Profile,
     default_meal_bands,
 )
+from macro.outages import Outage, apply_outages, describe_outages
 from macro.settings import gemini_api_key, gemini_models, load_staples
 
 MEALS = ("breakfast", "lunch", "dinner")
@@ -484,8 +485,163 @@ def ask_llm(system: str, user: str) -> dict[str, object]:
     raise SystemExit(f"Gemini request failed: {last_error}")
 
 
-def generate_plan(menu: DayMenu, profile: Profile, target: date) -> DayPlan:
-    items = catalog_for_day(menu, profile)
+def meal_plan_issues(plan: DayPlan, profile: Profile, meal_name: str) -> list[str]:
+    """Issues the replacement plate can still fix: that meal's band plus day totals."""
+    issues: list[str] = []
+    if plan.protein_g < profile.protein_g:
+        issues.append(
+            f"Day protein {plan.protein_g:g}g is below the {profile.protein_g:g}g dining-hall floor"
+        )
+    if plan.calories < profile.calories_min - 50:
+        issues.append(f"Day calories {plan.calories} below {profile.calories_min}")
+    if plan.calories > profile.calories_max + 150:
+        issues.append(f"Day calories {plan.calories} above {profile.calories_max}")
+    meal = plan.meal(meal_name)
+    if meal is None:
+        issues.append(f"{meal_name} is missing from the plan")
+        return issues
+    band = meal_band(profile, meal_name)
+    if meal.calories < band.calories_min:
+        issues.append(
+            f"{meal.name} is {meal.calories} kcal; raise it to {band.calories_min:g}-{band.calories_max:g}"
+        )
+    if meal.calories > band.calories_max:
+        issues.append(
+            f"{meal.name} is {meal.calories} kcal; cut it to {band.calories_min:g}-{band.calories_max:g}"
+        )
+    if meal.protein_g < band.protein_min:
+        issues.append(
+            f"{meal.name} has {meal.protein_g:g}g protein; need at least {band.protein_min:g}g"
+        )
+    return issues
+
+
+def _locked_meal_lines(plan: DayPlan, skip: str) -> str:
+    lines = []
+    for meal in plan.meals:
+        if meal.name == skip:
+            continue
+        names = ", ".join(
+            f"{item.name} x{item.servings:g}" for item in meal.items
+        ) or "(empty)"
+        lines.append(
+            f"- {meal.name} LOCKED ({meal.protein_g:g}g P / {meal.calories:g} kcal): {names}"
+        )
+    return "\n".join(lines) if lines else "- (no other meals)"
+
+
+def build_meal_prompt(
+    target: date,
+    profile: Profile,
+    meal_name: str,
+    catalog: list[dict[str, object]],
+    existing: DayPlan,
+    missing: str,
+    retry_hint: str | None = None,
+) -> tuple[str, str]:
+    system = (
+        "You are a dining-hall plate coach for an ovo-lacto vegetarian lifter. "
+        "Reason about the menu: what belongs on a plate together, what tastes "
+        "complete, what is actually healthy training food, and how carbs and fat "
+        "support the protein target. Choose only catalog items. Do not invent foods. "
+        "Return a single JSON object."
+    )
+    band = meal_band(profile, meal_name)
+    retry = (
+        f"\nFix these protein/calorie problems and rebuild only {meal_name}:\n{retry_hint}\n"
+        if retry_hint
+        else ""
+    )
+    missing_line = f"These foods are OUT and must not appear: {missing}.\n" if missing else ""
+    user = f"""ISR dining hall {meal_name} replan for {target.isoformat()}. Ovo-lacto vegetarian lifter.
+
+A food just ran out at the hall. Rebuild ONLY {meal_name} from the remaining catalog.
+Do not change the locked meals. Do not invent foods. Do not use items marked out.
+
+Dining-hall protein floor (one shake is outside this plan; do not include shakes): {profile.protein_g} g
+Day calorie band: {profile.calories_min}-{profile.calories_max} kcal
+Max items per meal: {profile.max_items_per_meal}
+{meal_name} band: {band.calories_min:g}-{band.calories_max:g} kcal, ≥{band.protein_min:g}g protein, include carbs and fat
+{missing_line}
+Locked meals (do not output these; they already happened or still stand):
+{_locked_meal_lines(existing, meal_name)}
+
+Reason about the replacement plate:
+- Build a complete meal: a protein center, enough carbs for lifting, and some healthy fat. Do not serve protein-only plates or a pile of steamed vegetables with a random sauce.
+- Taste and pairing: sauces and toppings only go with foods they belong on. Marinara belongs on pasta, not edamame and broccoli. Oatmeal should include a topping from the catalog (brown sugar, fruit, honey, nuts, yogurt) if one exists; if none exists, pick a different breakfast rather than serving it plain.
+- Health: prefer whole, training-friendly foods (eggs, yogurt, tofu, beans, grains, fruit, vegetables, simple cooked entrees). Skip pizza, fries, dessert, and similar junk even if the calories look convenient. Pasta is a fine carb; pizza is not.
+- Vegetables are a side, not the meal. Prefer fewer stations when it does not wreck the plate.
+- Servings: never use fractions for whole/discrete food items. Eggs, muffins, bagels, bananas, apples, cookies, patties, pieces of fruit, and similar countables must be whole numbers (1, 2, 3…). Do not prescribe half an egg or 1.5 muffins. Fractional servings are only allowed for scoopable or pourable foods (oatmeal, rice, yogurt, sauce, beans by volume, etc.). If macros need a nudge, add or drop a whole item or another catalog food instead of splitting one.
+
+Catalog fields: id, name, station, meal, serving, course, kcal, p, c, f. Use p/c/f to balance the plate; Python will only check protein and calories.
+{profile.notes.strip()}
+{retry}
+Remaining {meal_name} catalog (use these ids only):
+{json.dumps(catalog, indent=2)}
+
+Return JSON:
+{{
+  "meals": [
+    {{
+      "name": "{meal_name}",
+      "station_order": ["walking order"],
+      "plate_tips": "how to combine these so they taste like a real meal; what to skip or double",
+      "items": [
+        {{
+          "id": "catalog id",
+          "name": "exact catalog name",
+          "station": "station",
+          "servings": 1,
+          "serving_size": "from catalog",
+          "notes": "why this is on the plate / how it pairs"
+        }}
+      ]
+    }}
+  ],
+  "warnings": [],
+  "protein_gap_plan": null
+}}
+
+Return only {meal_name}. Hit the protein floor with the locked meals plus this plate. Do not invent foods.
+""".strip()
+    return system, user
+
+
+def _splice_meal(existing: DayPlan, rebuilt: DayPlan, meal_name: str) -> DayPlan:
+    replacement = rebuilt.meal(meal_name)
+    if replacement is None:
+        meals_from_llm = [m for m in rebuilt.meals if m.name == meal_name]
+        replacement = meals_from_llm[0] if meals_from_llm else MealPlan(name=meal_name)
+    meals = []
+    seen = False
+    for meal in existing.meals:
+        if meal.name == meal_name:
+            meals.append(replacement)
+            seen = True
+        else:
+            meals.append(meal)
+    if not seen:
+        meals.append(replacement)
+    warnings = list(existing.warnings)
+    for warning in rebuilt.warnings:
+        if warning not in warnings:
+            warnings.append(warning)
+    return DayPlan(
+        date=existing.date,
+        hall=existing.hall,
+        meals=meals,
+        warnings=warnings,
+        protein_gap_plan=rebuilt.protein_gap_plan or existing.protein_gap_plan,
+    )
+
+
+def generate_plan(
+    menu: DayMenu,
+    profile: Profile,
+    target: date,
+    outages: list[Outage] | None = None,
+) -> DayPlan:
+    items = apply_outages(catalog_for_day(menu, profile), outages or [])
     if not items:
         raise SystemExit(f"No vegetarian items with nutrition for {target.isoformat()}")
     rows = catalog_rows(items)
@@ -502,3 +658,44 @@ def generate_plan(menu: DayMenu, profile: Profile, target: date) -> DayPlan:
         print(f"Retrying plan ({attempt + 1}): {retry_hint}")
     assert plan is not None
     return fill_gaps(plan, items, profile)
+
+
+def generate_meal_plan(
+    menu: DayMenu,
+    profile: Profile,
+    target: date,
+    meal_name: str,
+    existing: DayPlan,
+    outages: list[Outage],
+) -> DayPlan:
+    if meal_name not in MEALS:
+        raise SystemExit(f"Unknown meal {meal_name!r}; use breakfast, lunch, or dinner")
+    catalog = apply_outages(catalog_for_day(menu, profile), outages, plan=existing)
+    meal_catalog = [item for item in catalog if item.meal == meal_name]
+    if not meal_catalog:
+        raise SystemExit(
+            f"No remaining {meal_name} catalog items after outages for {target.isoformat()}"
+        )
+    rows = catalog_rows(meal_catalog)
+    missing = describe_outages(
+        [outage for outage in outages if not outage.meal or outage.meal == meal_name]
+    )
+    retry_hint = None
+    plan: DayPlan | None = None
+    for attempt in range(2):
+        system, user = build_meal_prompt(
+            target, profile, meal_name, rows, existing, missing, retry_hint
+        )
+        raw = ask_llm(system, user)
+        rebuilt = dayplan_from_llm(raw, target)
+        plan = recompute(_splice_meal(existing, rebuilt, meal_name), catalog, profile)
+        note = f"Replanned {meal_name} without: {missing}" if missing else f"Replanned {meal_name}"
+        if note not in plan.warnings:
+            plan.warnings.append(note)
+        issues = meal_plan_issues(plan, profile, meal_name)
+        if not issues:
+            return plan
+        retry_hint = "; ".join(issues)
+        print(f"Retrying {meal_name} ({attempt + 1}): {retry_hint}")
+    assert plan is not None
+    return fill_gaps(plan, catalog, profile)

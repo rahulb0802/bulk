@@ -1,0 +1,59 @@
+name: Hall food out
+
+on:
+  repository_dispatch:
+    types: [food-out]
+  workflow_dispatch:
+    inputs:
+      item:
+        description: Food that is out
+        required: false
+        type: string
+      meal:
+        description: breakfast, lunch, or dinner
+        required: false
+        type: string
+      date:
+        description: today, tomorrow, or YYYY-MM-DD
+        required: false
+        default: today
+        type: string
+
+jobs:
+  replan:
+    runs-on: ubuntu-latest
+    env:
+      TZ: America/Chicago
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      FOOD_OUT_DISPATCH_TOKEN: ${{ secrets.FOOD_OUT_DISPATCH_TOKEN }}
+      FOOD_OUT_GITHUB_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Cache nutrition labels
+        uses: actions/cache@v4
+        with:
+          path: data/cache/nutrition.json
+          key: nutrition-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            nutrition-${{ runner.os }}-
+      - name: Replan meal
+        env:
+          OUT_ITEM: ${{ github.event.client_payload.item || github.event.inputs.item || '' }}
+          OUT_MEAL: ${{ github.event.client_payload.meal || github.event.inputs.meal || '' }}
+          OUT_DATE: ${{ github.event.client_payload.date || github.event.inputs.date || 'today' }}
+        run: |
+          set -euo pipefail
+          uv sync
+          extra=(--from-ntfy --date "${OUT_DATE:-today}")
+          if [ -n "${OUT_ITEM:-}" ]; then extra+=(--item "$OUT_ITEM"); fi
+          if [ -n "${OUT_MEAL:-}" ]; then extra+=(--meal "$OUT_MEAL"); fi
+          uv run macro out "${extra[@]}"
+      - name: Upload plan markdown
+        uses: actions/upload-artifact@v4
+        with:
+          name: isr-plan
+          path: data/plans/*.md
+          if-no-files-found: ignore
+          retention-days: 14

@@ -17,6 +17,7 @@ from macro.settings import (
 MEAL_NAMES = ("breakfast", "lunch", "dinner")
 SEQUENCE_KINDS = ("overview", *MEAL_NAMES)
 MAX_OUT_ACTIONS = 2
+PRIORITY_LEVELS = {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5, "max": 5}
 
 
 def meal_markdown(meal: MealPlan) -> str:
@@ -83,24 +84,6 @@ def meal_notify_at(plan_date: date, meal_name: str, profile: Profile) -> datetim
     return when - timedelta(minutes=profile.notify_lead_minutes)
 
 
-def _ascii_header(value: str) -> str:
-    replacements = {
-        "·": "-",
-        "—": "-",
-        "–": "-",
-        "×": "x",
-        "→": "->",
-        "…": "...",
-    }
-    for src, dst in replacements.items():
-        value = value.replace(src, dst)
-    return value.encode("ascii", "replace").decode("ascii")
-
-
-def _escape_action(value: str) -> str:
-    return value.replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;")
-
-
 def _short_item_name(name: str, limit: int = 16) -> str:
     name = name.strip()
     if len(name) <= limit:
@@ -108,31 +91,30 @@ def _short_item_name(name: str, limit: int = 16) -> str:
     return name[: limit - 3].rstrip() + "..."
 
 
-def _http_dispatch_action(label: str, url: str, token: str, payload: dict[str, object]) -> str:
-    body = json.dumps(payload, separators=(",", ":"))
-    return ", ".join(
-        [
-            "http",
-            _escape_action(_ascii_header(label)),
-            url,
-            "method=POST",
-            f"headers.Authorization=Bearer {_escape_action(token)}",
-            "headers.Accept=application/vnd.github+json",
-            "headers.Content-Type=application/json",
-            f"body={_escape_action(body)}",
-            "clear=true",
-        ]
-    )
+def _http_dispatch_action(label: str, url: str, token: str, payload: dict[str, object]) -> dict[str, object]:
+    return {
+        "action": "http",
+        "label": label,
+        "url": url,
+        "method": "POST",
+        "headers": {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+        },
+        "body": json.dumps(payload, separators=(",", ":")),
+        "clear": True,
+    }
 
 
-def meal_actions(plan_date: date, meal: MealPlan) -> str | None:
+def meal_actions(plan_date: date, meal: MealPlan) -> list[dict[str, object]] | None:
     token = food_out_dispatch_token()
     repo = food_out_github_repo()
     if not token or not repo:
         return None
     url = f"https://api.github.com/repos/{repo}/dispatches"
     ranked = sorted(meal.items, key=lambda item: item.protein_g, reverse=True)
-    actions: list[str] = []
+    actions: list[dict[str, object]] = []
     for item in ranked[:MAX_OUT_ACTIONS]:
         payload: dict[str, object] = {
             "event_type": "food-out",
@@ -160,7 +142,7 @@ def meal_actions(plan_date: date, meal: MealPlan) -> str | None:
             },
         )
     )
-    return "; ".join(actions[:3])
+    return actions[:3]
 
 
 def _publish(
@@ -171,28 +153,36 @@ def _publish(
     at: datetime | None = None,
     *,
     priority: str | None = None,
-    actions: str | None = None,
+    actions: list[dict[str, object]] | None = None,
     tags: str = "plate,tomato",
 ) -> None:
-    headers = {
-        "Title": _ascii_header(title),
-        "Markdown": "yes",
-        "Tags": tags,
+    # JSON publish so HTTP action bodies can contain JSON (ntfy's Actions header
+    # parser treats colons/commas as syntax and returns 400).
+    payload: dict[str, object] = {
+        "topic": topic,
+        "title": title,
+        "message": message,
+        "markdown": True,
+        "tags": [tag for tag in tags.split(",") if tag],
     }
+    if sequence_id:
+        payload["sequence_id"] = sequence_id
     if priority:
-        headers["Priority"] = priority
+        payload["priority"] = PRIORITY_LEVELS.get(priority, 4)
     if actions:
-        headers["Actions"] = actions
+        payload["actions"] = actions
     if at is not None:
         now = datetime.now(tz=at.tzinfo)
         if at > now + timedelta(minutes=2):
-            headers["At"] = str(int(at.timestamp()))
-    url = f"{ntfy_base_url()}/{topic}"
-    if sequence_id:
-        url = f"{url}/{sequence_id}"
+            payload["delay"] = str(int(at.timestamp()))
     with httpx.Client(timeout=20.0) as client:
-        response = client.post(url, content=message.encode("utf-8"), headers=headers)
-        response.raise_for_status()
+        response = client.post(ntfy_base_url(), json=payload)
+        if response.is_error:
+            raise httpx.HTTPStatusError(
+                f"{response.status_code} publishing to ntfy: {response.text}",
+                request=response.request,
+                response=response,
+            )
 
 
 def _delete_sequence(client: httpx.Client, topic: str, sequence_id: str) -> bool:

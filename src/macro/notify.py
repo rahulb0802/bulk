@@ -7,10 +7,16 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from macro.models import DayPlan, MealPlan, Profile
-from macro.settings import ntfy_base_url, ntfy_topic
+from macro.settings import (
+    food_out_dispatch_token,
+    food_out_github_repo,
+    ntfy_base_url,
+    ntfy_topic,
+)
 
 MEAL_NAMES = ("breakfast", "lunch", "dinner")
 SEQUENCE_KINDS = ("overview", *MEAL_NAMES)
+MAX_OUT_ACTIONS = 2
 
 
 def meal_markdown(meal: MealPlan) -> str:
@@ -27,6 +33,10 @@ def meal_markdown(meal: MealPlan) -> str:
         lines.append("Order: " + " → ".join(meal.station_order))
     if meal.plate_tips:
         lines.append(f"Tip: {meal.plate_tips}")
+    lines.append(
+        "If something else is gone: ntfy compose title **out**, message `food name` "
+        f"(or `{meal.name}: food`), then tap **New plate**."
+    )
     return "\n".join(lines)
 
 
@@ -80,29 +90,106 @@ def _ascii_header(value: str) -> str:
         "–": "-",
         "×": "x",
         "→": "->",
+        "…": "...",
     }
     for src, dst in replacements.items():
         value = value.replace(src, dst)
     return value.encode("ascii", "replace").decode("ascii")
 
 
+def _escape_action(value: str) -> str:
+    return value.replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;")
+
+
+def _short_item_name(name: str, limit: int = 16) -> str:
+    name = name.strip()
+    if len(name) <= limit:
+        return name
+    return name[: limit - 3].rstrip() + "..."
+
+
+def _http_dispatch_action(label: str, url: str, token: str, payload: dict[str, object]) -> str:
+    body = json.dumps(payload, separators=(",", ":"))
+    return ", ".join(
+        [
+            "http",
+            _escape_action(_ascii_header(label)),
+            url,
+            "method=POST",
+            f"headers.Authorization=Bearer {_escape_action(token)}",
+            "headers.Accept=application/vnd.github+json",
+            "headers.Content-Type=application/json",
+            f"body={_escape_action(body)}",
+            "clear=true",
+        ]
+    )
+
+
+def meal_actions(plan_date: date, meal: MealPlan) -> str | None:
+    token = food_out_dispatch_token()
+    repo = food_out_github_repo()
+    if not token or not repo:
+        return None
+    url = f"https://api.github.com/repos/{repo}/dispatches"
+    ranked = sorted(meal.items, key=lambda item: item.protein_g, reverse=True)
+    actions: list[str] = []
+    for item in ranked[:MAX_OUT_ACTIONS]:
+        payload: dict[str, object] = {
+            "event_type": "food-out",
+            "client_payload": {
+                "item": item.name,
+                "meal": meal.name,
+                "date": plan_date.isoformat(),
+            },
+        }
+        actions.append(
+            _http_dispatch_action(f"Out {_short_item_name(item.name)}", url, token, payload)
+        )
+    actions.append(
+        _http_dispatch_action(
+            "New plate",
+            url,
+            token,
+            {
+                "event_type": "food-out",
+                "client_payload": {
+                    "item": "",
+                    "meal": meal.name,
+                    "date": plan_date.isoformat(),
+                },
+            },
+        )
+    )
+    return "; ".join(actions[:3])
+
+
 def _publish(
     topic: str,
     title: str,
     message: str,
-    sequence_id: str,
+    sequence_id: str | None = None,
     at: datetime | None = None,
+    *,
+    priority: str | None = None,
+    actions: str | None = None,
+    tags: str = "plate,tomato",
 ) -> None:
     headers = {
         "Title": _ascii_header(title),
         "Markdown": "yes",
-        "Tags": "plate,tomato",
+        "Tags": tags,
     }
+    if priority:
+        headers["Priority"] = priority
+    if actions:
+        headers["Actions"] = actions
     if at is not None:
         now = datetime.now(tz=at.tzinfo)
         if at > now + timedelta(minutes=2):
             headers["At"] = str(int(at.timestamp()))
-    url = f"{ntfy_base_url()}/{topic}/{sequence_id}"
+    url = f"{ntfy_base_url()}/{topic}"
+    if sequence_id:
+        url = f"{url}/{sequence_id}"
     with httpx.Client(timeout=20.0) as client:
         response = client.post(url, content=message.encode("utf-8"), headers=headers)
         response.raise_for_status()
@@ -174,6 +261,35 @@ def cancel_plan_notifications(target: date, profile: Profile) -> int:
     return cancelled
 
 
+def notify_meal(
+    plan: DayPlan,
+    profile: Profile,
+    meal_name: str,
+    *,
+    immediate: bool = False,
+) -> None:
+    topic = ntfy_topic()
+    if not topic:
+        print("NTFY_TOPIC not set; skipping notifications.")
+        return
+    meal = plan.meal(meal_name)
+    if meal is None:
+        print(f"No {meal_name} in plan; skipping ntfy.")
+        return
+    target = date.fromisoformat(plan.date)
+    when = None if immediate else meal_notify_at(target, meal.name, profile)
+    _publish(
+        topic,
+        title=f"ISR {meal.name} - {meal.protein_g:g}g P - {meal.calories:g} kcal",
+        message=meal_markdown(meal),
+        sequence_id=ntfy_sequence_id(target, meal.name),
+        at=when,
+        priority="high" if immediate else None,
+        actions=meal_actions(target, meal),
+        tags="plate,tomato,rotating_light" if immediate else "plate,tomato",
+    )
+
+
 def notify_plan(plan: DayPlan, profile: Profile) -> None:
     topic = ntfy_topic()
     if not topic:
@@ -187,11 +303,4 @@ def notify_plan(plan: DayPlan, profile: Profile) -> None:
         sequence_id=ntfy_sequence_id(target, "overview"),
     )
     for meal in plan.meals:
-        when = meal_notify_at(target, meal.name, profile)
-        _publish(
-            topic,
-            title=f"ISR {meal.name} - {meal.protein_g:g}g P - {meal.calories:g} kcal",
-            message=meal_markdown(meal),
-            sequence_id=ntfy_sequence_id(target, meal.name),
-            at=when,
-        )
+        notify_meal(plan, profile, meal.name, immediate=False)

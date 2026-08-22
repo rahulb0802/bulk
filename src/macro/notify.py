@@ -251,6 +251,39 @@ def cancel_plan_notifications(target: date, profile: Profile) -> int:
     return cancelled
 
 
+def clear_plan_notifications(target: date, profile: Profile) -> int:
+    """Drop scheduled and already-delivered ISR pings for the date."""
+    topic = ntfy_topic()
+    if not topic:
+        print("NTFY_TOPIC not set; skipping plate clear.")
+        return 0
+    cleared = cancel_plan_notifications(target, profile)
+    seen: set[str] = {ntfy_sequence_id(target, kind) for kind in SEQUENCE_KINDS}
+    tz = ZoneInfo(profile.timezone)
+    start = datetime(target.year, target.month, target.day, tzinfo=tz)
+    with httpx.Client(timeout=20.0) as client:
+        poll = client.get(
+            f"{ntfy_base_url()}/{topic}/json",
+            params={"poll": "1", "since": str(int(start.timestamp()))},
+        )
+        poll.raise_for_status()
+        for line in poll.text.splitlines():
+            if not line.strip():
+                continue
+            raw = json.loads(line)
+            if not _scheduled_matches_date(raw, target, profile):
+                continue
+            sid = str(raw.get("sequence_id") or raw.get("id") or "")
+            if not sid or sid in seen:
+                continue
+            if _delete_sequence(client, topic, sid):
+                title = str(raw.get("title") or sid)
+                print(f"Deleted {title}")
+                cleared += 1
+            seen.add(sid)
+    return cleared
+
+
 def notify_meal(
     plan: DayPlan,
     profile: Profile,

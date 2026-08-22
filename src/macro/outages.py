@@ -124,6 +124,54 @@ def load_outages(target: date, profile: Profile) -> list[Outage]:
     return outages
 
 
+def clear_outages(target: date, profile: Profile) -> int:
+    """Delete ntfy messages titled out for this calendar day."""
+    topic = ntfy_topic()
+    if not topic:
+        print("NTFY_TOPIC not set; skipping outage clear.")
+        return 0
+    tz = ZoneInfo(profile.timezone)
+    start = datetime.combine(target, time.min, tzinfo=tz)
+    end = datetime.combine(target, time.max, tzinfo=tz)
+    deleted = 0
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            response = client.get(
+                f"{ntfy_base_url()}/{topic}/json",
+                params={"poll": "1", "since": str(int(start.timestamp()))},
+            )
+            response.raise_for_status()
+            for line in response.text.splitlines():
+                if not line.strip():
+                    continue
+                raw = json.loads(line)
+                if raw.get("event") != "message":
+                    continue
+                title = str(raw.get("title") or "")
+                message = str(raw.get("message") or "")
+                if not _looks_like_outage(title, message):
+                    continue
+                stamp = int(raw.get("time") or 0)
+                if stamp <= 0:
+                    continue
+                when = datetime.fromtimestamp(stamp, tz=tz)
+                if when < start or when > end:
+                    continue
+                sid = str(raw.get("id") or "")
+                if not sid:
+                    continue
+                drop = client.delete(f"{ntfy_base_url()}/{topic}/{sid}")
+                if drop.status_code in {400, 404}:
+                    continue
+                drop.raise_for_status()
+                print(f"Deleted outage ({message or title})")
+                deleted += 1
+    except Exception as exc:
+        print(f"Could not clear ntfy outages ({exc}).")
+        return deleted
+    return deleted
+
+
 def _looks_like_outage(title: str, message: str) -> bool:
     title_l = title.lower().strip()
     message_l = message.lower().strip()

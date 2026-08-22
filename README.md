@@ -32,6 +32,10 @@ uv run macro notify --cancel --date tomorrow
 # laptop: food is gone at the hall (default date is today)
 uv run macro out "cottage cheese"
 uv run macro out eggs --meal lunch
+
+# wipe today's and tomorrow's ISR pings, outage log, and local plan files
+uv run macro reset
+uv run macro reset --date today
 ```
 
 Later `plan` / `notify` publishes reuse `isr-YYYY-MM-DD-{overview,breakfast,lunch,dinner}` so a re-plan replaces the queue instead of stacking.

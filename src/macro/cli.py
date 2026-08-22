@@ -7,11 +7,12 @@ from zoneinfo import ZoneInfo
 from macro.models import DayPlan, Profile
 from macro.notify import (
     cancel_plan_notifications,
+    clear_plan_notifications,
     notify_meal,
     notify_plan,
     plan_to_markdown,
 )
-from macro.outages import Outage, infer_meal, load_outages, publish_outage
+from macro.outages import Outage, clear_outages, infer_meal, load_outages, publish_outage
 from macro.plan import MEALS, generate_meal_plan, generate_plan
 from macro.scrape import load_menu, save_menu, scrape_isr
 from macro.settings import ensure_data_subdir, load_env, load_profile
@@ -148,6 +149,25 @@ def cmd_out(
         print(f"Sent replacement {meal} ping.")
 
 
+def cmd_reset(targets: list[date], profile: Profile) -> None:
+    folder = ensure_data_subdir("plans")
+    for target in targets:
+        print(f"Resetting {target.isoformat()}...")
+        plates = clear_plan_notifications(target, profile)
+        outs = clear_outages(target, profile)
+        removed = 0
+        for suffix in (".json", ".md"):
+            path = folder / f"{target.isoformat()}{suffix}"
+            if path.exists():
+                path.unlink()
+                print(f"Removed {path}")
+                removed += 1
+        print(
+            f"Cleared {plates} ISR ntfy message(s), {outs} outage(s), "
+            f"{removed} local plan file(s) for {target.isoformat()}."
+        )
+
+
 def main() -> None:
     load_env()
     profile = load_profile()
@@ -156,8 +176,8 @@ def main() -> None:
         "cmd",
         nargs="?",
         default="plan",
-        choices=["scrape", "plan", "notify", "out"],
-        help="scrape, plan (default), notify, or out",
+        choices=["scrape", "plan", "notify", "out", "reset"],
+        help="scrape, plan (default), notify, out, or reset",
     )
     parser.add_argument(
         "food",
@@ -167,7 +187,7 @@ def main() -> None:
     parser.add_argument(
         "--date",
         default=None,
-        help="today, tomorrow, or YYYY-MM-DD (default: tomorrow; today for out)",
+        help="today, tomorrow, or YYYY-MM-DD (default: tomorrow; today for out; today+tomorrow for reset)",
     )
     parser.add_argument(
         "--no-scrape",
@@ -200,6 +220,11 @@ def main() -> None:
         help="With out: include today's ntfy out messages (phone New plate path)",
     )
     args = parser.parse_args()
+    if args.cmd == "reset" and args.date is None:
+        tz = ZoneInfo(profile.timezone)
+        today = datetime.now(tz).date()
+        cmd_reset([today, today + timedelta(days=1)], profile)
+        return
     date_value = args.date
     if date_value is None:
         date_value = "today" if args.cmd == "out" else "tomorrow"
@@ -222,6 +247,9 @@ def main() -> None:
             do_scrape=not args.no_scrape,
             do_notify=not args.no_notify,
         )
+        return
+    if args.cmd == "reset":
+        cmd_reset([target], profile)
         return
     cmd_plan(
         target,

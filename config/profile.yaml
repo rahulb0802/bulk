@@ -1,7 +1,7 @@
 diet: ovo-lacto vegetarian
 protein_g: 135
-calories_min: 2200
-calories_max: 2400
+calories_min: 2850
+calories_max: 3100
 max_items_per_meal: 6
 meal_bands:
   breakfast:

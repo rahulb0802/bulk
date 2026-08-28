@@ -5,16 +5,16 @@ calories_max: 3100
 max_items_per_meal: 6
 meal_bands:
   breakfast:
-    calories_min: 550
-    calories_max: 850
+    calories_min: 700
+    calories_max: 1100
     protein_min: 35
   lunch:
-    calories_min: 650
-    calories_max: 950
+    calories_min: 850
+    calories_max: 1250
     protein_min: 45
   dinner:
-    calories_min: 650
-    calories_max: 950
+    calories_min: 850
+    calories_max: 1250
     protein_min: 45
 timezone: America/Chicago
 # ntfy pings this many minutes before each meal

@@ -87,17 +87,17 @@ class MealBand(BaseModel):
 
 def default_meal_bands() -> dict[str, MealBand]:
     return {
-        "breakfast": MealBand(calories_min=550, calories_max=850, protein_min=35),
-        "lunch": MealBand(calories_min=650, calories_max=950, protein_min=45),
-        "dinner": MealBand(calories_min=650, calories_max=950, protein_min=45),
+        "breakfast": MealBand(calories_min=700, calories_max=1100, protein_min=35),
+        "lunch": MealBand(calories_min=850, calories_max=1250, protein_min=45),
+        "dinner": MealBand(calories_min=850, calories_max=1250, protein_min=45),
     }
 
 
 class Profile(BaseModel):
     diet: str = "ovo-lacto vegetarian"
     protein_g: float = 135
-    calories_min: float = 2200
-    calories_max: float = 2400
+    calories_min: float = 2850
+    calories_max: float = 3100
     max_items_per_meal: int = 6
     meal_bands: dict[str, MealBand] = Field(default_factory=default_meal_bands)
     timezone: str = "America/Chicago"

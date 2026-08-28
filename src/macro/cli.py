@@ -8,6 +8,7 @@ from macro.models import DayPlan, Profile
 from macro.notify import (
     cancel_plan_notifications,
     clear_plan_notifications,
+    future_meal_names,
     notify_meal,
     notify_plan,
     plan_to_markdown,
@@ -147,6 +148,9 @@ def cmd_out(
     if do_notify:
         notify_meal(plan, profile, meal, immediate=True)
         print(f"Sent replacement {meal} ping.")
+        for name in future_meal_names(plan, profile, skip=meal):
+            notify_meal(plan, profile, name, immediate=False)
+            print(f"Re-queued {name} ping.")
 
 
 def cmd_reset(targets: list[date], profile: Profile) -> None:

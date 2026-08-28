@@ -1,8 +1,8 @@
 # ISR Daily Macro Planner
 
-Personal tool that scrapes tomorrow's [ISR EatSmart](https://eatsmart.housing.illinois.edu/) menu, builds an ovo-lacto vegetarian breakfast/lunch/dinner plan targeting **≥135g protein** from dining-hall food and **2200–2400 kcal**, then sends the plate to your phone via [ntfy.sh](https://ntfy.sh).
+Personal tool that scrapes tomorrow's [ISR EatSmart](https://eatsmart.housing.illinois.edu/) menu, builds an ovo-lacto vegetarian breakfast/lunch/dinner plan targeting **≥135g protein** from dining-hall food and **2850–3100 kcal**, then sends the plate to your phone via [ntfy.sh](https://ntfy.sh).
 
-One protein shake is excluded. Macros are recomputed in Python from official nutrition labels so the model cannot invent numbers. Calories are also split per meal (roughly 550–850 breakfast, 650–950 lunch/dinner) so the day is not one huge lunch and a tiny dinner.
+One protein shake is excluded. Macros are recomputed in Python from official nutrition labels so the model cannot invent numbers. Calories are also split per meal (roughly 700–1100 breakfast, 850–1250 lunch/dinner) so the day is not one huge lunch and a tiny dinner.
 
 ## Setup
 

@@ -18,6 +18,8 @@ MEAL_NAMES = ("breakfast", "lunch", "dinner")
 SEQUENCE_KINDS = ("overview", *MEAL_NAMES)
 MAX_OUT_ACTIONS = 2
 PRIORITY_LEVELS = {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5, "max": 5}
+# Match _publish: only delay if the ping is more than this far in the future.
+DELAY_GRACE = timedelta(minutes=2)
 
 
 def meal_markdown(meal: MealPlan) -> str:
@@ -173,7 +175,7 @@ def _publish(
         payload["actions"] = actions
     if at is not None:
         now = datetime.now(tz=at.tzinfo)
-        if at > now + timedelta(minutes=2):
+        if at > now + DELAY_GRACE:
             payload["delay"] = str(int(at.timestamp()))
     with httpx.Client(timeout=20.0) as client:
         response = client.post(ntfy_base_url(), json=payload)
@@ -282,6 +284,35 @@ def clear_plan_notifications(target: date, profile: Profile) -> int:
                 cleared += 1
             seen.add(sid)
     return cleared
+
+
+def future_meal_names(
+    plan: DayPlan,
+    profile: Profile,
+    *,
+    skip: str,
+    now: datetime | None = None,
+) -> list[str]:
+    """Later meals that still need a delayed ntfy row after a live replacement ping.
+
+    ntfy poll-since-id only returns messages with a newer internal id than the last
+    one the phone saw. Republishing those meals replaces the old scheduled rows
+    with new ones that still deliver after the replacement ping.
+    """
+    target = date.fromisoformat(plan.date)
+    tz = ZoneInfo(profile.timezone)
+    current = now.astimezone(tz) if now is not None else datetime.now(tz)
+    names: list[str] = []
+    for name in MEAL_NAMES:
+        if name == skip:
+            continue
+        meal = plan.meal(name)
+        if meal is None or not meal.items:
+            continue
+        when = meal_notify_at(target, name, profile)
+        if when > current + DELAY_GRACE:
+            names.append(name)
+    return names
 
 
 def notify_meal(

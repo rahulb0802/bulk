@@ -18,6 +18,10 @@ on:
         required: false
         default: today
         type: string
+      message:
+        description: Feedback for the model when regenerating the meal
+        required: false
+        type: string
 
 jobs:
   replan:
@@ -43,12 +47,14 @@ jobs:
           OUT_ITEM: ${{ github.event.client_payload.item || github.event.inputs.item || '' }}
           OUT_MEAL: ${{ github.event.client_payload.meal || github.event.inputs.meal || '' }}
           OUT_DATE: ${{ github.event.client_payload.date || github.event.inputs.date || 'today' }}
+          OUT_MESSAGE: ${{ github.event.client_payload.message || github.event.inputs.message || '' }}
         run: |
           set -euo pipefail
           uv sync
           extra=(--from-ntfy --date "${OUT_DATE:-today}")
           if [ -n "${OUT_ITEM:-}" ]; then extra+=(--item "$OUT_ITEM"); fi
           if [ -n "${OUT_MEAL:-}" ]; then extra+=(--meal "$OUT_MEAL"); fi
+          if [ -n "${OUT_MESSAGE:-}" ]; then extra+=(--message "$OUT_MESSAGE"); fi
           uv run macro out "${extra[@]}"
       - name: Upload plan markdown
         uses: actions/upload-artifact@v4

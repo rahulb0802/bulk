@@ -1,7 +1,9 @@
 # Only add foods you have personally seen at ISR (station, typical serving, macros).
 # The planner will not invent always-available items. EatSmart is the source of truth.
 #
-# Macros below are from ISR Build Your Own on EatSmart (2026-08-29 labels).
+# Macros below are from ISR Build Your Own on EatSmart (2026-08-29 labels),
+# plus cup soy milk and 2 Tbsp peanut butter (typical ISR beverage/condiment
+# servings). Prefer soy milk over 2% milk in plans.
 # A bagel plus one plain cream cheese cup is 350 kcal (280 + 70).
 # EatSmart does not list Greek yogurt at any UIUC dining hall. The always-on
 # salad-bar yogurt is Prairie Farms; Plain FF is the highest-protein option.
@@ -33,6 +35,15 @@ items:
     protein_g: 2
     carbs_g: 15
     fat_g: 2
+  - id: staple-soy-milk
+    name: Soy Milk
+    station: Beverages
+    meals: [breakfast, lunch, dinner]
+    serving_size: Cup (243g)
+    calories: 80
+    protein_g: 7
+    carbs_g: 4
+    fat_g: 4
   - id: staple-2pct-milk
     name: 2% Milk
     station: Beverages
@@ -42,6 +53,15 @@ items:
     protein_g: 8
     carbs_g: 11
     fat_g: 4.5
+  - id: staple-peanut-butter
+    name: Peanut Butter
+    station: Condiments
+    meals: [breakfast, lunch, dinner]
+    serving_size: 2 Tbsp (32g)
+    calories: 190
+    protein_g: 7
+    carbs_g: 8
+    fat_g: 16
   - id: staple-yogurt
     name: Prairie Farms Plain FF Yogurt
     station: Salad Bar

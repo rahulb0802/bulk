@@ -62,13 +62,21 @@ def cmd_scrape(target: date) -> None:
     )
 
 
-def cmd_plan(target: date, profile: Profile, do_scrape: bool, do_notify: bool) -> None:
+def cmd_plan(
+    target: date,
+    profile: Profile,
+    do_scrape: bool,
+    do_notify: bool,
+    message: str = "",
+) -> None:
     menu = load_or_scrape_menu(target, do_scrape)
     outages = load_outages(target, profile)
     if outages:
         print(f"Honoring {len(outages)} ntfy outage(s) for {target.isoformat()}.")
+    if message.strip():
+        print(f"Passing diner feedback to the model: {message.strip()}")
     print(f"Planning {target.isoformat()} from {len(menu.items)} items...")
-    plan = generate_plan(menu, profile, target, outages)
+    plan = generate_plan(menu, profile, target, outages, message=message)
     save_plan(plan)
     print(plan_to_markdown(plan))
     print(f"Wrote data/plans/{plan.date}.md")
@@ -108,6 +116,7 @@ def cmd_out(
     item: str,
     do_scrape: bool,
     do_notify: bool,
+    message: str = "",
 ) -> None:
     meal = _normalize_meal(meal_name, profile)
     queries: list[str] = []
@@ -115,9 +124,10 @@ def cmd_out(
         queries.append(food)
     if item.strip():
         queries.append(item.strip())
-    if not queries and not from_ntfy:
+    feedback = message.strip()
+    if not queries and not from_ntfy and not feedback:
         raise SystemExit(
-            "macro out needs a food name, --item, or --from-ntfy "
+            "macro out needs a food name, --item, --from-ntfy, or --message "
             "(phone New plate polls ntfy outs)."
         )
     for query in queries:
@@ -127,9 +137,10 @@ def cmd_out(
     for query in queries:
         if query.lower() not in recorded:
             outages.append(Outage(query=query, meal=meal))
-    if not outages:
+    if not outages and not feedback:
         raise SystemExit(
-            "No outages to apply. Publish an ntfy message titled out, or pass a food name."
+            "No outages to apply. Publish an ntfy message titled out, pass a food name, "
+            "or pass --message with plate feedback."
         )
     menu = load_or_scrape_menu(target, do_scrape)
     existing = load_saved_plan(target)
@@ -137,11 +148,15 @@ def cmd_out(
         f"Replanning {meal} for {target.isoformat()} "
         f"({len(outages)} outage(s), {len(menu.items)} menu items)..."
     )
+    if feedback:
+        print(f"Passing diner feedback to the model: {feedback}")
     if existing is None:
         print("No saved plan; generating a full day with outages excluded.")
-        plan = generate_plan(menu, profile, target, outages)
+        plan = generate_plan(menu, profile, target, outages, message=feedback)
     else:
-        plan = generate_meal_plan(menu, profile, target, meal, existing, outages)
+        plan = generate_meal_plan(
+            menu, profile, target, meal, existing, outages, message=feedback
+        )
     save_plan(plan)
     print(plan_to_markdown(plan))
     print(f"Wrote data/plans/{plan.date}.md")
@@ -223,6 +238,12 @@ def main() -> None:
         action="store_true",
         help="With out: include today's ntfy out messages (phone New plate path)",
     )
+    parser.add_argument(
+        "--message",
+        "-m",
+        default="",
+        help="Feedback for the model when planning or regenerating a meal",
+    )
     args = parser.parse_args()
     if args.cmd == "reset" and args.date is None:
         tz = ZoneInfo(profile.timezone)
@@ -250,6 +271,7 @@ def main() -> None:
             item=args.item,
             do_scrape=not args.no_scrape,
             do_notify=not args.no_notify,
+            message=args.message,
         )
         return
     if args.cmd == "reset":
@@ -260,6 +282,7 @@ def main() -> None:
         profile,
         do_scrape=not args.no_scrape,
         do_notify=not args.no_notify,
+        message=args.message,
     )
 
 

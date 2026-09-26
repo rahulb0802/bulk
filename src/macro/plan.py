@@ -103,8 +103,8 @@ def recompute(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPl
                     f"{item.name} is listed for {item.meal}, not {meal.name}; kept anyway"
                 )
             servings = raw.servings if raw.servings and raw.servings > 0 else 1.0
-            if servings > 6:
-                servings = 6
+            if servings > 3:
+                servings = 3
             key = item.id
             if key in seen:
                 continue
@@ -271,7 +271,7 @@ def fill_gaps(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPl
                 "Added to hit protein floor" if need_protein_here else "Added to balance meal calories",
             )
             continue
-        extras = [item for item in meal.items if item.servings < 4]
+        extras = [item for item in meal.items if item.servings < 2]
         if not extras:
             break
         extras.sort(
@@ -369,14 +369,27 @@ def _band_lines(profile: Profile) -> str:
 def _plate_rules() -> str:
     return """
 Reason about each plate before you pick items:
-- Macros first: every meal MUST land in its calorie band and protein floor using catalog p/c/f. Undershooting "to keep it simple" is a failed plate. Add catalog items or extra servings until the band is honestly hit.
+- Macros first: every meal MUST land in its calorie band and protein floor using catalog p/c/f. Undershooting "to keep it simple" is a failed plate. Add catalog items until the band is honestly hit. Do not hit the band by dumping huge servings of one food.
 - Balanced training meal: a protein center, a real carb (oatmeal, grains, potatoes, beans, fruit — not only a pastry), some healthy fat, and a fruit or vegetable from that meal's catalog when one exists. Sparse plates fail: eggs and muffins, yogurt and granola with nothing else, a sandwich and nothing green, protein plus one starch and no produce. Those are examples, not an exhaustive list.
 - Complete plate: do not serve protein-only plates or a pile of steamed vegetables with a random sauce.
-- Taste and pairing: sauces and toppings only go with foods they belong on. Marinara belongs on pasta, not edamame and broccoli. Oatmeal should include a topping from the catalog (brown sugar, fruit, honey, nuts, yogurt) if one exists; if none exists, pick a different breakfast rather than serving it plain.
+- Taste and pairing: sauces and toppings only go with foods they belong on. Marinara belongs on pasta, not edamame and broccoli. Oatmeal should include a topping from the catalog (brown sugar, fruit, honey, nuts, yogurt, peanut butter) if one exists; if none exists, pick a different breakfast rather than serving it plain.
 - Health: prefer whole, training-friendly foods (eggs, yogurt, tofu, beans, grains, fruit, vegetables, simple cooked entrees). Skip pizza, fries, dessert, and similar junk even if the calories look convenient. Pasta is a fine carb; pizza is not. A pastry can be a side, never the only carb.
 - Vegetables are a side, not the meal. Prefer fewer stations when it does not wreck the plate or the macro band.
-- Servings: never use fractions for whole/discrete food items. Eggs, muffins, bagels, bananas, apples, cookies, patties, pieces of fruit, and similar countables must be whole numbers (1, 2, 3…). Do not prescribe half an egg or 1.5 muffins. Fractional servings are only allowed for scoopable or pourable foods (oatmeal, rice, yogurt, sauce, beans by volume, etc.). If macros need a nudge, add or drop a whole item or another catalog food instead of splitting one.
+- Portions: plan a plate a person can actually eat. Default to 1 catalog serving. At most 2 servings of any one food, except small countables like eggs (up to 3). Never prescribe 3+ cups of oatmeal, rice, yogurt, or milk, a stack of bagels, or similar bulk. If calories are short, add a different catalog food instead of doubling volume.
+- Liquids: include soy milk when it is in the catalog — about 1 cup, never more than 2 cups in a meal. Prefer soy milk over dairy milk. Use 2% milk only if soy milk is missing or out. Do not make a meal of several glasses of any milk.
+- Peanut butter: sometimes include 1 serving (2 Tbsp) as a fat/protein accent on oatmeal, toast, fruit, or yogurt. Never more than 1 serving in a meal, and not at every meal of the day.
+- Servings: never use fractions for whole/discrete food items. Eggs, muffins, bagels, bananas, apples, cookies, patties, pieces of fruit, and similar countables must be whole numbers (1, 2, 3…). Do not prescribe half an egg or 1.5 muffins. Fractional servings are only allowed for scoopable or pourable foods (oatmeal, rice, yogurt, sauce, milk, peanut butter, beans by volume, etc.). If macros need a nudge, add or drop a whole item or another catalog food instead of splitting one.
 """.strip()
+
+
+def _feedback_block(message: str | None) -> str:
+    text = (message or "").strip()
+    if not text:
+        return ""
+    return (
+        "\nDiner feedback (must follow; this is why the plate is being rebuilt):\n"
+        f"{text}\n"
+    )
 
 
 def build_prompt(
@@ -384,11 +397,13 @@ def build_prompt(
     profile: Profile,
     catalog: list[dict[str, object]],
     retry_hint: str | None = None,
+    message: str | None = None,
 ) -> tuple[str, str]:
     system = (
         "You are a dining-hall plate coach for an ovo-lacto vegetarian lifter. "
         "Every meal must be healthy, balanced, and inside its protein/calorie band. "
         "Sparse two-item plates fail (e.g. eggs and a muffin for breakfast). "
+        "Portions must be realistic — never huge volumes of one food. "
         "Choose only catalog items. Do not invent foods. "
         "Return a single JSON object."
     )
@@ -403,7 +418,7 @@ Meal bands (hard constraints — hit them on every meal; do not dump calories in
 {_band_lines(profile)}
 
 {_plate_rules()}
-
+{_feedback_block(message)}
 Catalog fields: id, name, station, meal, serving, course, kcal, p, c, f. Use p/c/f to balance the plate; Python will only check protein and calories.
 {profile.notes.strip()}
 {retry}
@@ -546,11 +561,14 @@ def build_meal_prompt(
     existing: DayPlan,
     missing: str,
     retry_hint: str | None = None,
+    message: str | None = None,
 ) -> tuple[str, str]:
     system = (
         "You are a dining-hall plate coach for an ovo-lacto vegetarian lifter. "
         "The replacement meal must be healthy, balanced, and inside its protein/calorie band. "
         "Sparse two-item plates fail (e.g. eggs and a muffin for breakfast). "
+        "Portions must be realistic — never huge volumes of one food. "
+        "Honor diner feedback when it is provided. "
         "Choose only catalog items. Do not invent foods. "
         "Return a single JSON object."
     )
@@ -561,9 +579,14 @@ def build_meal_prompt(
         else ""
     )
     missing_line = f"These foods are OUT and must not appear: {missing}.\n" if missing else ""
+    reason = (
+        f"A food just ran out at the hall. Rebuild ONLY {meal_name} from the remaining catalog."
+        if missing
+        else f"Rebuild ONLY {meal_name} from the catalog using the diner's feedback."
+    )
     user = f"""ISR dining hall {meal_name} replan for {target.isoformat()}. Ovo-lacto vegetarian lifter.
 
-A food just ran out at the hall. Rebuild ONLY {meal_name} from the remaining catalog.
+{reason}
 Do not change the locked meals. Do not invent foods. Do not use items marked out.
 
 Dining-hall protein floor (one shake is outside this plan; do not include shakes): {profile.protein_g} g
@@ -575,7 +598,7 @@ Locked meals (do not output these; they already happened or still stand):
 {_locked_meal_lines(existing, meal_name)}
 
 {_plate_rules()}
-
+{_feedback_block(message)}
 Catalog fields: id, name, station, meal, serving, course, kcal, p, c, f. Use p/c/f to balance the plate; Python will only check protein and calories.
 {profile.notes.strip()}
 {retry}
@@ -643,6 +666,7 @@ def generate_plan(
     profile: Profile,
     target: date,
     outages: list[Outage] | None = None,
+    message: str | None = None,
 ) -> DayPlan:
     items = apply_outages(catalog_for_day(menu, profile), outages or [])
     if not items:
@@ -651,7 +675,7 @@ def generate_plan(
     retry_hint = None
     plan: DayPlan | None = None
     for attempt in range(2):
-        system, user = build_prompt(target, profile, rows, retry_hint)
+        system, user = build_prompt(target, profile, rows, retry_hint, message)
         raw = ask_llm(system, user)
         plan = recompute(dayplan_from_llm(raw, target), items, profile)
         issues = plan_issues(plan, profile)
@@ -670,6 +694,7 @@ def generate_meal_plan(
     meal_name: str,
     existing: DayPlan,
     outages: list[Outage],
+    message: str | None = None,
 ) -> DayPlan:
     if meal_name not in MEALS:
         raise SystemExit(f"Unknown meal {meal_name!r}; use breakfast, lunch, or dinner")
@@ -687,12 +712,21 @@ def generate_meal_plan(
     plan: DayPlan | None = None
     for attempt in range(2):
         system, user = build_meal_prompt(
-            target, profile, meal_name, rows, existing, missing, retry_hint
+            target,
+            profile,
+            meal_name,
+            rows,
+            existing,
+            missing,
+            retry_hint,
+            message,
         )
         raw = ask_llm(system, user)
         rebuilt = dayplan_from_llm(raw, target)
         plan = recompute(_splice_meal(existing, rebuilt, meal_name), catalog, profile)
         note = f"Replanned {meal_name} without: {missing}" if missing else f"Replanned {meal_name}"
+        if (message or "").strip():
+            note = f"{note}; feedback: {message.strip()}"
         if note not in plan.warnings:
             plan.warnings.append(note)
         issues = meal_plan_issues(plan, profile, meal_name)

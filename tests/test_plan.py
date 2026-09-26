@@ -23,7 +23,7 @@ class PromptTest(TestCase):
         _, user = build_prompt(date(2026, 9, 26), profile, [])
         self.assertIn("Prefer soy milk over dairy milk", user)
         self.assertIn("Peanut butter", user)
-        self.assertIn("Default to 1 catalog serving", user)
+        self.assertIn("2–3 servings of a protein or a starch is normal", user)
         self.assertNotIn("Diner feedback", user)
 
     def test_meal_prompt_includes_feedback(self) -> None:
@@ -59,7 +59,7 @@ class PromptTest(TestCase):
 
 
 class RecomputePortionCapTest(TestCase):
-    def test_caps_servings_at_three(self) -> None:
+    def test_caps_extreme_servings(self) -> None:
         catalog = load_staples()
         milk = next(i for i in catalog if i.name == "Soy Milk" and i.meal == "breakfast")
         plan = DayPlan(
@@ -81,5 +81,5 @@ class RecomputePortionCapTest(TestCase):
         rebuilt = recompute(plan, catalog, Profile())
         breakfast = rebuilt.meal("breakfast")
         assert breakfast is not None
-        self.assertEqual(breakfast.items[0].servings, 3)
-        self.assertEqual(breakfast.items[0].calories, round(milk.calories() * 3))
+        self.assertEqual(breakfast.items[0].servings, 5)
+        self.assertEqual(breakfast.items[0].calories, round(milk.calories() * 5))

@@ -103,8 +103,8 @@ def recompute(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPl
                     f"{item.name} is listed for {item.meal}, not {meal.name}; kept anyway"
                 )
             servings = raw.servings if raw.servings and raw.servings > 0 else 1.0
-            if servings > 3:
-                servings = 3
+            if servings > 5:
+                servings = 5
             key = item.id
             if key in seen:
                 continue
@@ -271,7 +271,7 @@ def fill_gaps(plan: DayPlan, catalog: list[MenuItem], profile: Profile) -> DayPl
                 "Added to hit protein floor" if need_protein_here else "Added to balance meal calories",
             )
             continue
-        extras = [item for item in meal.items if item.servings < 2]
+        extras = [item for item in meal.items if item.servings < 4]
         if not extras:
             break
         extras.sort(
@@ -369,15 +369,15 @@ def _band_lines(profile: Profile) -> str:
 def _plate_rules() -> str:
     return """
 Reason about each plate before you pick items:
-- Macros first: every meal MUST land in its calorie band and protein floor using catalog p/c/f. Undershooting "to keep it simple" is a failed plate. Add catalog items until the band is honestly hit. Do not hit the band by dumping huge servings of one food.
+- Macros first: every meal MUST land in its calorie band and protein floor using catalog p/c/f. Undershooting "to keep it simple" is a failed plate. Add catalog items or extra servings until the band is honestly hit. Do not hit the band by turning one food into a mountain.
 - Balanced training meal: a protein center, a real carb (oatmeal, grains, potatoes, beans, fruit — not only a pastry), some healthy fat, and a fruit or vegetable from that meal's catalog when one exists. Sparse plates fail: eggs and muffins, yogurt and granola with nothing else, a sandwich and nothing green, protein plus one starch and no produce. Those are examples, not an exhaustive list.
 - Complete plate: do not serve protein-only plates or a pile of steamed vegetables with a random sauce.
 - Taste and pairing: sauces and toppings only go with foods they belong on. Marinara belongs on pasta, not edamame and broccoli. Oatmeal should include a topping from the catalog (brown sugar, fruit, honey, nuts, yogurt, peanut butter) if one exists; if none exists, pick a different breakfast rather than serving it plain.
 - Health: prefer whole, training-friendly foods (eggs, yogurt, tofu, beans, grains, fruit, vegetables, simple cooked entrees). Skip pizza, fries, dessert, and similar junk even if the calories look convenient. Pasta is a fine carb; pizza is not. A pastry can be a side, never the only carb.
 - Vegetables are a side, not the meal. Prefer fewer stations when it does not wreck the plate or the macro band.
-- Portions: plan a plate a person can actually eat. Default to 1 catalog serving. At most 2 servings of any one food, except small countables like eggs (up to 3). Never prescribe 3+ cups of oatmeal, rice, yogurt, or milk, a stack of bagels, or similar bulk. If calories are short, add a different catalog food instead of doubling volume.
-- Liquids: include soy milk when it is in the catalog — about 1 cup, never more than 2 cups in a meal. Prefer soy milk over dairy milk. Use 2% milk only if soy milk is missing or out. Do not make a meal of several glasses of any milk.
-- Peanut butter: sometimes include 1 serving (2 Tbsp) as a fat/protein accent on oatmeal, toast, fruit, or yogurt. Never more than 1 serving in a meal, and not at every meal of the day.
+- Portions: this is a surplus training day, so plates should be filling. 1 catalog serving is a starting point, not a ceiling. 2–3 servings of a protein or a starch is normal (eggs up to 4). Skip only absurd volume: 4+ cups of oatmeal/rice/yogurt, a stack of bagels, or one food as the entire meal. Once an item is already at 3 servings, add a different catalog food instead of piling more of the same.
+- Liquids: include soy milk when it is in the catalog (1–2 cups). Prefer soy milk over dairy milk. Use 2% milk only if soy milk is missing or out. Do not pour 3+ cups of any milk in one meal.
+- Peanut butter: sometimes include it on oatmeal, toast, fruit, or yogurt — 1 serving (2 Tbsp) is typical; 2 servings is fine if the plate still needs fat. Not at every meal, and not a half-cup smear.
 - Servings: never use fractions for whole/discrete food items. Eggs, muffins, bagels, bananas, apples, cookies, patties, pieces of fruit, and similar countables must be whole numbers (1, 2, 3…). Do not prescribe half an egg or 1.5 muffins. Fractional servings are only allowed for scoopable or pourable foods (oatmeal, rice, yogurt, sauce, milk, peanut butter, beans by volume, etc.). If macros need a nudge, add or drop a whole item or another catalog food instead of splitting one.
 """.strip()
 

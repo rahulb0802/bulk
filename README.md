@@ -32,6 +32,9 @@ uv run macro notify --cancel --date tomorrow
 # laptop: food is gone at the hall (default date is today)
 uv run macro out "cottage cheese"
 uv run macro out eggs --meal lunch
+# rebuild a meal with diner feedback (no food has to be out)
+uv run macro out --meal lunch -m "too much rice, add more protein"
+uv run macro plan --date today --no-notify -m "yesterday breakfast was too dry"
 
 # wipe today's and tomorrow's ISR pings, outage log, and local plan files
 uv run macro reset
@@ -48,6 +51,7 @@ The hall interface is ntfy. You do not need a laptop at ISR.
 
 1. **Planned item is gone:** on the meal ping, tap **Out …** for that food. That records the outage and starts a Gemini replan of **that meal**. A high-priority replacement plate arrives in about 1–2 minutes.
 2. **Something else is gone:** in the ntfy app, publish a message with title `out` and the food name (`tofu`, or `lunch: eggs`). Then tap **New plate** on the meal ping.
+3. **The plate was wrong (portions, pairing, etc.):** from a laptop, `uv run macro out --meal lunch -m "too much rice"`. `--message` is forwarded to Gemini so the rebuild uses that feedback even if nothing is out.
 
 ntfy only shows three action buttons. The two highest-protein items on the plate get **Out**; the third button is always **New plate**. Remaining items use compose + **New plate**.
 

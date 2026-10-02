@@ -228,16 +228,20 @@ def _plausible_serving(nutrition: Nutrition) -> bool:
 
 def parse_nutrition_label(html: str) -> Nutrition:
     soup = BeautifulSoup(html, "lxml")
-    text = soup.get_text(" ", strip=True)
+    root = soup.select_one("#nutritionLabel") or soup
+    text = root.get_text(" ", strip=True)
+    # Ingredients/allergens can mention "protein" and oils; keep the facts panel only.
+    text = re.split(r"Ingredients:", text, maxsplit=1, flags=re.I)[0]
     serving = ""
-    serve_el = soup.select_one(".cbo_nn_LabelBottomBorderLabel")
+    serve_el = root.select_one(".cbo_nn_LabelBottomBorderLabel")
     if serve_el:
         serving = serve_el.get_text(" ", strip=True)
         serving = re.sub(r"^Serving Size:\s*", "", serving, flags=re.I)
         serving = serving.replace("\xa0", " ").strip()
     nutrients: dict[str, float] = {}
     for label, pattern in (
-        ("calories", r"Calories\s+(\d+(?:\.\d+)?)"),
+        # Do not take "Calories from Fat 23" as the calorie count.
+        ("calories", r"Calories(?!\s+from)\s+(\d+(?:\.\d+)?)"),
         ("protein_g", r"Protein\s+([\d.]+)\s*g"),
         ("carbs_g", r"Total Carbohydrate\s+([\d.]+)\s*g"),
         ("fat_g", r"Total Fat\s+([\d.]+)\s*g"),

@@ -3,7 +3,7 @@ from unittest import TestCase
 from zoneinfo import ZoneInfo
 
 from macro.models import DayPlan, MealPlan, PlannedItem, Profile
-from macro.notify import future_meal_names, meal_notify_at
+from macro.notify import future_meal_names, meal_markdown, meal_notify_at
 
 
 def _item(name: str = "eggs") -> PlannedItem:
@@ -78,3 +78,33 @@ class FutureMealNamesTest(TestCase):
         self.assertGreater(when, now)
         self.assertEqual(when.hour, 16)
         self.assertEqual(when.minute, 15)
+
+
+class MealMarkdownTest(TestCase):
+    def test_lists_item_carbs_fat_and_calories(self) -> None:
+        meal = MealPlan(
+            name="breakfast",
+            protein_g=61,
+            carbs_g=91,
+            fat_g=51,
+            calories=1060,
+            items=[
+                PlannedItem(
+                    id="sausage",
+                    name="Vegetarian Sausage Patties",
+                    station="Grillworks",
+                    servings=2,
+                    serving_size="Patty",
+                    protein_g=18,
+                    carbs_g=8,
+                    fat_g=5,
+                    calories=140,
+                    notes="plant protein",
+                )
+            ],
+        )
+        text = meal_markdown(meal)
+        self.assertIn("61g P · 91g C · 51g F · 1060 kcal", text)
+        self.assertIn("2 × Patty", text)
+        self.assertIn("18g P / 8g C / 5g F / 140 kcal", text)
+        self.assertIn("plant protein", text)

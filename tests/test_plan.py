@@ -1,7 +1,7 @@
 from datetime import date
 from unittest import TestCase
 
-from macro.models import DayPlan, MealPlan, PlannedItem, Profile
+from macro.models import DayPlan, MealPlan, MenuItem, Nutrition, PlannedItem, Profile
 from macro.plan import build_meal_prompt, build_prompt, recompute
 from macro.settings import load_staples, load_profile
 
@@ -83,3 +83,107 @@ class RecomputePortionCapTest(TestCase):
         assert breakfast is not None
         self.assertEqual(breakfast.items[0].servings, 5)
         self.assertEqual(breakfast.items[0].calories, round(milk.calories() * 5))
+
+
+def _grill(name: str, item_id: str, serving: str, **nutrients: float) -> MenuItem:
+    return MenuItem(
+        id=item_id,
+        name=name,
+        station="Grillworks",
+        meal="breakfast",
+        serving_size=serving,
+        traits=["Vegetarian"],
+        nutrition=Nutrition(serving_size=serving, **nutrients),
+    )
+
+
+class BreakfastMacroRecomputeTest(TestCase):
+    def test_isr_breakfast_fat_is_eggs_and_peanut_butter_not_sausage(self) -> None:
+        """EatSmart 2026-10-02 labels: sausage is 2.5g fat/patty, not the 51g meal total.
+
+        2 scrambled eggs (11g F each) + 2 Tbsp peanut butter (16g) dominate fat.
+        """
+        eggs = _grill(
+            "Scrambled Eggs",
+            "eggs",
+            "1/3 Cup",
+            calories=150,
+            protein_g=9,
+            carbs_g=0,
+            fat_g=11,
+        )
+        sausage = _grill(
+            "Vegetarian Sausage Patties",
+            "sausage",
+            "Patty",
+            calories=70,
+            protein_g=9,
+            carbs_g=4,
+            fat_g=2.5,
+        )
+        zucchini = _grill(
+            "Herb Roasted Zucchini & Tomato Bake",
+            "zucchini",
+            "Cup",
+            calories=70,
+            protein_g=2,
+            carbs_g=11,
+            fat_g=3,
+        )
+        staples = {
+            item.name: item
+            for item in load_staples()
+            if item.meal == "breakfast"
+            and item.name in {"Bagel", "Peanut Butter", "Soy Milk"}
+        }
+        catalog = [eggs, sausage, zucchini, *staples.values()]
+        plan = DayPlan(
+            date="2026-10-02",
+            meals=[
+                MealPlan(
+                    name="breakfast",
+                    items=[
+                        PlannedItem(id=eggs.id, name=eggs.name, station=eggs.station, servings=2),
+                        PlannedItem(
+                            id=sausage.id, name=sausage.name, station=sausage.station, servings=2
+                        ),
+                        PlannedItem(
+                            id=staples["Bagel"].id,
+                            name="Bagel",
+                            station="Deli & Bagel Bar",
+                            servings=1,
+                        ),
+                        PlannedItem(
+                            id=staples["Peanut Butter"].id,
+                            name="Peanut Butter",
+                            station="Condiments",
+                            servings=1,
+                        ),
+                        PlannedItem(
+                            id=staples["Soy Milk"].id,
+                            name="Soy Milk",
+                            station="Beverages",
+                            servings=1,
+                        ),
+                        PlannedItem(
+                            id=zucchini.id,
+                            name=zucchini.name,
+                            station=zucchini.station,
+                            servings=1,
+                        ),
+                    ],
+                )
+            ],
+        )
+        rebuilt = recompute(plan, catalog, Profile())
+        breakfast = rebuilt.meal("breakfast")
+        assert breakfast is not None
+        by_name = {item.name: item for item in breakfast.items}
+        self.assertEqual(by_name["Vegetarian Sausage Patties"].fat_g, 5.0)
+        self.assertEqual(by_name["Vegetarian Sausage Patties"].protein_g, 18.0)
+        self.assertEqual(by_name["Scrambled Eggs"].fat_g, 22.0)
+        self.assertEqual(by_name["Peanut Butter"].fat_g, 16.0)
+        self.assertEqual(breakfast.protein_g, 61.0)
+        self.assertEqual(breakfast.carbs_g, 91.0)
+        self.assertEqual(breakfast.fat_g, 51.0)
+        self.assertEqual(breakfast.calories, 1060)

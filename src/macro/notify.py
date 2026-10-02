@@ -30,7 +30,9 @@ def meal_markdown(meal: MealPlan) -> str:
         amount = f"{item.servings:g} × {item.serving_size}" if item.serving_size else f"{item.servings:g} servings"
         extra = f" — {item.notes}" if item.notes else ""
         lines.append(
-            f"{i}. **{item.name}** ({amount}) @ {item.station} · {item.protein_g:g}g P{extra}"
+            f"{i}. **{item.name}** ({amount}) @ {item.station} · "
+            f"{item.protein_g:g}g P / {item.carbs_g:g}g C / {item.fat_g:g}g F / {item.calories:g} kcal"
+            f"{extra}"
         )
     if meal.station_order:
         lines.append("Order: " + " → ".join(meal.station_order))
